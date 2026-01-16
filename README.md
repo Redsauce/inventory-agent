@@ -5,7 +5,7 @@ Agente de inventario automático para sistemas Linux. Recopila hardware, softwar
 ## 🚀 Instalación (un comando)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redsauce/inventory-agent/main/install.sh | sudo bash
+curl -fsSL https://github.com/Redsauce/inventory-agent/blob/main/install.sh | sudo bash
 ```
 
 ## 📋 ¿Qué hace?
