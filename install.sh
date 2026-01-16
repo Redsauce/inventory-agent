@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # Uso:
-#   curl -fsSL https://github.com/Redsauce/inventory-agent/blob/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/Redsauce/inventory-agent/main/install.sh | sudo bash
 #
 
 set -e
@@ -14,7 +14,7 @@ set -e
 # ============================================================================
 
 # URL de GitHub donde está el agente
-GITHUB_RAW_URL="https://github.com/Redsauce/inventory-agent/blob/main"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/Redsauce/inventory-agent/main"
 
 # Directorios de instalación
 INSTALL_DIR="/opt/rs-agent"
@@ -64,7 +64,7 @@ check_root() {
         error "Este script debe ejecutarse como root"
         echo ""
         echo "Ejecuta:"
-        echo "  curl -fsSL https://github.com/Redsauce/inventory-agent/blob/main/install.sh | sudo bash"
+        echo "  curl -fsSL https://raw.githubusercontent.com/Redsauce/inventory-agent/main/install.sh | sudo bash"
         echo ""
         exit 1
     fi
