@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Redsauce Inventory Agent - Recopilador de inventario de sistemas Linux
-Versión: 1.1 (con detección de cambios)
+Versión: 0.1.0 (con detección de cambios y auto-actualización)
 Requiere: Permisos de root/sudo
 """
 
@@ -15,7 +15,19 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 # ============ CONFIGURACIÓN ============
+
+# Versión actual del agente
+AGENT_VERSION = "0.1.0"
+
+# URLs de GitHub para auto-actualización
+GITHUB_API_URL = "https://api.github.com/repos/redsauce/inventory-agent/releases/latest"
+GITHUB_AGENT_URL = "https://raw.githubusercontent.com/redsauce/inventory-agent/main/rs_agent.py"
 
 # Directorio donde se guardará el inventario
 OUTPUT_DIR = "/var/lib/rs-agent"
@@ -365,6 +377,63 @@ def save_hash(hash_value):
 
 # ============ MAIN ============
 
+# ============ AUTO-ACTUALIZACIÓN ============
+
+def check_for_updates():
+    """Comprueba si hay nueva versión en GitHub Releases"""
+    if not requests:
+        return False  # Si no hay requests, no puede actualizar
+    
+    try:
+        response = requests.get(GITHUB_API_URL, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            latest_version = data['tag_name'].lstrip('v')  # Por si usa v0.1.0
+            
+            if latest_version > AGENT_VERSION:
+                print(f"🔄 Nueva versión disponible: {latest_version} (actual: {AGENT_VERSION})")
+                return download_update()
+    except Exception as e:
+        # Falla silenciosamente para no interrumpir el inventario
+        pass
+    
+    return False
+
+def download_update():
+    """Descarga e instala la nueva versión"""
+    try:
+        print("📥 Descargando actualización...")
+        response = requests.get(GITHUB_AGENT_URL, timeout=10)
+        
+        if response.status_code == 200:
+            script_path = "/opt/rs-agent/rs_agent.py"
+            
+            # Guardar backup
+            backup_path = script_path + ".backup"
+            if os.path.exists(script_path):
+                os.rename(script_path, backup_path)
+            
+            # Escribir nueva versión
+            with open(script_path, 'w') as f:
+                f.write(response.text)
+            os.chmod(script_path, 0o755)
+            
+            print("✅ Actualización completada. Reiniciando agente...")
+            
+            # Re-ejecutar el script actualizado
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+        return True
+        
+    except Exception as e:
+        print(f"⚠️  Error actualizando: {e}")
+        # Restaurar backup si existe
+        if os.path.exists(backup_path):
+            os.rename(backup_path, script_path)
+        return False
+
+# ============ MAIN ============
+
 def check_root():
     """
     Verifica que el script se ejecute como root
@@ -387,6 +456,10 @@ def main():
     
     # Verificar permisos
     check_root()
+    
+    # Comprobar actualizaciones (antes de recopilar inventario)
+    if check_for_updates():
+        return  # Si se actualizó, el script se re-ejecuta automáticamente
     
     # Crear directorio de salida
     ensure_output_dir()

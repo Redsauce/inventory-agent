@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # Uso:
-#   curl -fsSL https://raw.githubusercontent.com/Redsauce/inventory-agent/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/redsauce/inventory-agent/main/install.sh | sudo bash
 #
 
 set -e
@@ -14,7 +14,7 @@ set -e
 # ============================================================================
 
 # URL de GitHub donde está el agente
-GITHUB_RAW_URL="https://raw.githubusercontent.com/Redsauce/inventory-agent/main"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/redsauce/inventory-agent/main"
 
 # Directorios de instalación
 INSTALL_DIR="/opt/rs-agent"
@@ -64,7 +64,7 @@ check_root() {
         error "Este script debe ejecutarse como root"
         echo ""
         echo "Ejecuta:"
-        echo "  curl -fsSL https://raw.githubusercontent.com/Redsauce/inventory-agent/main/install.sh | sudo bash"
+        echo "  curl -fsSL https://raw.githubusercontent.com/redsauce/inventory-agent/main/install.sh | sudo bash"
         echo ""
         exit 1
     fi
@@ -108,13 +108,13 @@ install_python() {
     case $DISTRO in
         ubuntu|debian)
             apt-get update -qq
-            apt-get install -y python3 python3-pip lsb-release util-linux iproute2 > /dev/null 2>&1
+            apt-get install -y python3 python3-pip python3-requests lsb-release util-linux iproute2 > /dev/null 2>&1
             ;;
         rhel|centos|fedora|rocky|almalinux)
             if command -v dnf &> /dev/null; then
-                dnf install -y python3 python3-pip util-linux iproute > /dev/null 2>&1
+                dnf install -y python3 python3-pip python3-requests util-linux iproute > /dev/null 2>&1
             else
-                yum install -y python3 python3-pip util-linux iproute > /dev/null 2>&1
+                yum install -y python3 python3-pip python3-requests util-linux iproute > /dev/null 2>&1
             fi
             ;;
         *)
