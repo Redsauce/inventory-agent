@@ -43,9 +43,9 @@ def test_rsm_connection():
     curl_cmd = [
     'curl',
     '--location', RSM_API_URL,
-    '--form', 'RStrigger=newServerData',      
-    '--form', f'RSdata={rsm_json}',
-    '--form', f'RStoken={RSM_TOKEN}',         
+    '--data-urlencode', f'RStrigger=newServerData',
+    '--data-urlencode', f'RSdata={rsm_json}',
+    '--data-urlencode', f'RStoken={RSM_TOKEN}',
     '--max-time', '30',
     '--verbose'
 ]
