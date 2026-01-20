@@ -41,14 +41,14 @@ def test_rsm_connection():
     
     # Comando curl
     curl_cmd = [
-        'curl',
-        '--location', RSM_API_URL,
-        '--form', 'RStrigger="newServerData"',
-        '--form', f'RSdata={rsm_json}',
-        '--form', f'RStoken="{RSM_TOKEN}"',
-        '--max-time', '30',
-        '--verbose'
-    ]
+    'curl',
+    '--location', RSM_API_URL,
+    '--form', 'RStrigger=newServerData',      
+    '--form', f'RSdata={rsm_json}',
+    '--form', f'RStoken={RSM_TOKEN}',         
+    '--max-time', '30',
+    '--verbose'
+]
     
     print("\n🔄 Enviando datos...")
     print(f"   Comando: curl --location '{RSM_API_URL}' ...")
