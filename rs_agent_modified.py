@@ -394,21 +394,38 @@ def send_to_rsm(inventory):
     
     if not system_packages:
         print("⚠️ No hay paquetes del sistema para enviar")
-        return True  # No es error crítico si no hay paquetes
+        return True
     
     # Transformar al formato RSM
     rsm_data = []
     for pkg in system_packages:
         rsm_data.append({
-            "77": pkg["name"],      # Nombre del paquete
-            "78": pkg["version"],   # Versión
-            "79": SERVER_ID     # ID del Server
+            "77": pkg["name"],
+            "78": pkg["version"],
+            "79": SERVER_ID
         })
+    
+    # 🔍 DEBUG 1: Mostrar muestra de datos
+    print(f"\n🔍 DEBUG - Total paquetes a enviar: {len(rsm_data)}")
+    print(f"🔍 DEBUG - Muestra de los primeros 3 paquetes:")
+    for i, pkg in enumerate(rsm_data[:3]):
+        print(f"   [{i+1}] {pkg}")
     
     # Convertir a JSON string
     rsm_json = json.dumps(rsm_data, ensure_ascii=False)
     
-    # Construir comando curl
+    # 🔍 DEBUG 2: Mostrar JSON (primeros 500 caracteres)
+    print(f"\n🔍 DEBUG - JSON generado (primeros 500 chars):")
+    print(f"   {rsm_json[:500]}...")
+    print(f"🔍 DEBUG - Longitud total del JSON: {len(rsm_json)} caracteres")
+    
+    # 🔍 DEBUG 3: Guardar JSON en archivo temporal para inspección
+    debug_json_path = "/tmp/rsm_debug_payload.json"
+    with open(debug_json_path, 'w') as f:
+        f.write(rsm_json)
+    print(f"🔍 DEBUG - JSON completo guardado en: {debug_json_path}")
+    
+    # Construir comando curl (SIN --silent para ver respuesta completa)
     curl_cmd = [
         'curl',
         '--location', RSM_API_URL,
@@ -416,11 +433,21 @@ def send_to_rsm(inventory):
         '--form', f'RSdata={rsm_json}',
         '--form', f'RStoken={RSM_TOKEN}',
         '--max-time', '30',
-        '--silent',
-        '--show-error'
+        '--show-error',
+        '--verbose'  # 🔍 Añadir verbose para ver más detalles
     ]
     
+    # 🔍 DEBUG 4: Mostrar comando curl exacto
+    print(f"\n🔍 DEBUG - Comando curl a ejecutar:")
+    print(f"   {' '.join(curl_cmd[:6])}...")  # Mostrar primeros argumentos
+    print(f"🔍 DEBUG - Configuración:")
+    print(f"   • URL: {RSM_API_URL}")
+    print(f"   • Token: {RSM_TOKEN}")
+    print(f"   • Server ID: {SERVER_ID}")
+    
     try:
+        print(f"\n🔄 Ejecutando petición a RSM...")
+        
         # Ejecutar curl
         result = subprocess.run(
             curl_cmd,
@@ -429,16 +456,22 @@ def send_to_rsm(inventory):
             timeout=35
         )
         
+        # 🔍 DEBUG 5: Mostrar respuesta completa
+        print(f"\n🔍 DEBUG - Código de salida: {result.returncode}")
+        
+        if result.stdout:
+            print(f"🔍 DEBUG - STDOUT del servidor:")
+            print(f"   {result.stdout}")
+        
+        if result.stderr:
+            print(f"🔍 DEBUG - STDERR (info de curl):")
+            print(f"   {result.stderr[:500]}...")  # Primeros 500 caracteres
+        
         if result.returncode == 0:
-            print(f"✅ Datos enviados correctamente ({len(system_packages)} paquetes)")
-            if result.stdout:
-                print(f"   Respuesta: {result.stdout.strip()}")
+            print(f"\n✅ Datos enviados correctamente ({len(system_packages)} paquetes)")
             return True
         else:
-            print(f"❌ ERROR: Fallo al enviar datos a RSM")
-            print(f"   Código de salida: {result.returncode}")
-            if result.stderr:
-                print(f"   Error: {result.stderr.strip()}")
+            print(f"\n❌ ERROR: Fallo al enviar datos a RSM")
             return False
             
     except subprocess.TimeoutExpired:
@@ -446,6 +479,8 @@ def send_to_rsm(inventory):
         return False
     except Exception as e:
         print(f"❌ ERROR: Excepción al enviar datos a RSM: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # ============ AUTO-ACTUALIZACIÓN ============
