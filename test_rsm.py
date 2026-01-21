@@ -12,7 +12,7 @@ import sys
 # CONFIGURAR ESTOS VALORES
 RSM_API_URL = "https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
 RSM_TOKEN = "429bd269e5c88dc73c14c69bf0e87717"  # ⚠️ CAMBIAR
-RSM_CLIENT_ID = "1"  # ⚠️ CAMBIAR
+SERVER_ID = "1"  # ⚠️ CAMBIAR
 
 def test_rsm_connection():
     """Prueba el envío a RSM con datos de ejemplo"""
@@ -23,35 +23,33 @@ def test_rsm_connection():
     print(f"\n📍 Configuración:")
     print(f"   URL: {RSM_API_URL}")
     print(f"   Token: {RSM_TOKEN}")
-    print(f"   Cliente ID: {RSM_CLIENT_ID}")
     
     # Datos de prueba
     test_packages = [
-        {"77": "test-package-1", "78": "1.0.0", "79": RSM_CLIENT_ID},
-        {"77": "test-package-2", "78": "2.5.3", "79": RSM_CLIENT_ID},
-        {"77": "test-package-3", "78": "0.9.1", "79": RSM_CLIENT_ID},
+        {"77": "test-package-1", "78": "1.0.0", "79": SERVER_ID}
     ]
-    
-    print(f"\n📦 Paquetes de prueba: {len(test_packages)}")
-    for pkg in test_packages:
-        print(f"   • {pkg['77']} v{pkg['78']}")
-    
+
     # Convertir a JSON
     rsm_json = json.dumps(test_packages, ensure_ascii=False)
+
+    # Comando curl - enviar el JSON directamente sin archivo
+    import os
     
-    # Comando curl
+    # Pasar el JSON directamente como string en el formulario
+    # subprocess.run() con lista maneja correctamente los argumentos sin interpretación de shell
     curl_cmd = [
-    'curl',
-    '--location', RSM_API_URL,
-    '--data-urlencode', f'RStrigger=newServerData',
-    '--data-urlencode', f'RSdata={rsm_json}',
-    '--data-urlencode', f'RStoken={RSM_TOKEN}',
-    '--max-time', '30',
-    '--verbose'
-]
+        'curl',
+        '--location', RSM_API_URL,
+        '--form', 'RStrigger=newServerData',
+        '--form', f'RSdata={rsm_json}',  # JSON directo, sin archivo
+        '--form', f'RStoken={RSM_TOKEN}',
+        '--max-time', '30',
+        '--verbose'
+    ]
     
     print("\n🔄 Enviando datos...")
-    print(f"   Comando: curl --location '{RSM_API_URL}' ...")
+    print(f"   Comando COMPLETO:")
+    print(f"   {' '.join(curl_cmd)}")
     
     try:
         result = subprocess.run(

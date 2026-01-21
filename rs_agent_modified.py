@@ -40,7 +40,7 @@ HASH_FILE = ".inventory.hash"
 # Configuración RSM (modificar según cliente)
 RSM_API_URL = "https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
 RSM_TOKEN = "429bd269e5c88dc73c14c69bf0e87717"  # ⚠️ CAMBIAR POR CLIENTE
-RSM_CLIENT_ID = "1"  # ⚠️ CAMBIAR POR CLIENTE
+SERVER_ID = "1"  # ⚠️ CAMBIAR POR CLIENTE
 
 # ============ UTILIDADES ============
 
@@ -402,7 +402,7 @@ def send_to_rsm(inventory):
         rsm_data.append({
             "77": pkg["name"],      # Nombre del paquete
             "78": pkg["version"],   # Versión
-            "79": RSM_CLIENT_ID     # ID del cliente
+            "79": SERVER_ID     # ID del Server
         })
     
     # Convertir a JSON string
@@ -412,9 +412,9 @@ def send_to_rsm(inventory):
     curl_cmd = [
         'curl',
         '--location', RSM_API_URL,
-        '--form', 'RStrigger="newServerData"',
+        '--form', 'RStrigger=newServerData',
         '--form', f'RSdata={rsm_json}',
-        '--form', f'RStoken="{RSM_TOKEN}"',
+        '--form', f'RStoken={RSM_TOKEN}',
         '--max-time', '30',
         '--silent',
         '--show-error'
@@ -596,7 +596,7 @@ def main():
         print("="*60)
         print("\n⚠️ Verifica:")
         print(f"   • Token RSM: {RSM_TOKEN}")
-        print(f"   • Cliente ID: {RSM_CLIENT_ID}")
+        print(f"   • Server ID: {SERVER_ID}")
         print(f"   • URL: {RSM_API_URL}")
         print(f"   • Conectividad de red")
         print()
