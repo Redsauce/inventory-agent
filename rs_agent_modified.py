@@ -13,6 +13,7 @@ import socket
 import os
 import sys
 import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -298,35 +299,93 @@ def collect_npm_packages():
 def collect_critical_software():
     """
     Detecta versiones de software crítico común
+    Retorna array de objetos con estructura: {name, version, raw_output}
     Útil para software compilado o instalado fuera de gestores de paquetes
     """
-    software = {}
+    software = []
     
-    # Lista de software a detectar
+    # Lista de software a detectar con regex para extraer versión
     checks = {
-        "apache2": "apache2 -v",
-        "httpd": "httpd -v",
-        "nginx": "nginx -v",
-        "mysql": "mysql --version",
-        "mysqld": "mysqld --version",
-        "postgresql": "psql --version",
-        "postgres": "postgres --version",
-        "docker": "docker --version",
-        "php": "php --version",
-        "node": "node --version",
-        "java": "java -version",
-        "python3": "python3 --version",
-        "openssh": "ssh -V",
-        "openssl": "openssl version",
-        "git": "git --version"
+        "apache2": {
+            "cmd": "apache2 -v",
+            "regex": r"Apache/(\d+\.\d+\.\d+)"
+        },
+        "httpd": {
+            "cmd": "httpd -v",
+            "regex": r"Apache/(\d+\.\d+\.\d+)"
+        },
+        "nginx": {
+            "cmd": "nginx -v",
+            "regex": r"nginx/(\d+\.\d+\.\d+)"
+        },
+        "mysql": {
+            "cmd": "mysql --version",
+            "regex": r"Ver (\d+\.\d+\.\d+)"
+        },
+        "mysqld": {
+            "cmd": "mysqld --version",
+            "regex": r"Ver (\d+\.\d+\.\d+)"
+        },
+        "postgresql": {
+            "cmd": "psql --version",
+            "regex": r"PostgreSQL[)\s]+(\d+\.\d+(?:\.\d+)?)"
+        },
+        "postgres": {
+            "cmd": "postgres --version",
+            "regex": r"PostgreSQL[)\s]+(\d+\.\d+(?:\.\d+)?)"
+        },
+        "docker": {
+            "cmd": "docker --version",
+            "regex": r"Docker version (\d+\.\d+\.\d+)"
+        },
+        "php": {
+            "cmd": "php --version",
+            "regex": r"PHP (\d+\.\d+\.\d+)"
+        },
+        "node": {
+            "cmd": "node --version",
+            "regex": r"v(\d+\.\d+\.\d+)"
+        },
+        "java": {
+            "cmd": "java -version",
+            "regex": r'version "(\d+\.\d+\.\d+)'
+        },
+        "python3": {
+            "cmd": "python3 --version",
+            "regex": r"Python (\d+\.\d+\.\d+)"
+        },
+        "openssh": {
+            "cmd": "ssh -V",
+            "regex": r"OpenSSH_(\d+\.\d+p?\d*)"
+        },
+        "openssl": {
+            "cmd": "openssl version",
+            "regex": r"OpenSSL (\d+\.\d+\.\d+[a-z]?)"
+        },
+        "git": {
+            "cmd": "git --version",
+            "regex": r"git version (\d+\.\d+\.\d+)"
+        }
     }
     
-    for name, cmd in checks.items():
-        version = run_command(cmd, ignore_errors=True)
-        if version:
-            # Extraer solo la primera línea (suele tener la versión)
-            version = version.split('\n')[0]
-            software[name] = version
+    for name, config in checks.items():
+        raw_output = run_command(config["cmd"], ignore_errors=True)
+        if raw_output:
+            # Extraer solo la primera línea
+            first_line = raw_output.split('\n')[0]
+            
+            # Intentar extraer versión limpia con regex
+            version = "unknown"
+            if "regex" in config:
+                match = re.search(config["regex"], first_line)
+                if match:
+                    version = match.group(1)
+            
+            software.append({
+                "name": name,
+                "version": version,
+                "raw_output": first_line
+            })
     
     return software
 
@@ -389,7 +448,16 @@ def send_to_rsm(inventory):
     print(f"     - Sistema (dpkg/rpm): {dpkg_count + rpm_count}")
     print(f"     - Python (pip): {pip_count}")
     print(f"     - Node.js (npm): {npm_count}")
-    print(f"   • Critical software: {len(inventory.get('critical_software', {}))}")
+    print(f"   • Critical software: {len(inventory.get('critical_software', []))}")
+    
+    # Mostrar software crítico detectado con versiones
+    critical_sw = inventory.get('critical_software', [])
+    if critical_sw:
+        print(f"     - Detectados:")
+        for sw in critical_sw[:5]:  # Mostrar solo los primeros 5
+            print(f"       · {sw['name']}: {sw['version']}")
+        if len(critical_sw) > 5:
+            print(f"       · ... y {len(critical_sw) - 5} más")
     
     # 🔍 DEBUG 2: Mostrar JSON (primeros 800 caracteres)
     print(f"\n🔍 DEBUG - JSON generado (primeros 800 chars):")
@@ -578,7 +646,13 @@ def main():
     
     print("🔧 Detectando software crítico...")
     inventory["critical_software"] = collect_critical_software()
-    print(f"   → {len(inventory['critical_software'])} aplicaciones detectadas")
+    critical_count = len(inventory['critical_software'])
+    print(f"   → {critical_count} aplicaciones detectadas")
+    
+    # Mostrar algunas versiones detectadas
+    if critical_count > 0:
+        parsed_count = sum(1 for sw in inventory['critical_software'] if sw['version'] != 'unknown')
+        print(f"   → {parsed_count}/{critical_count} versiones parseadas correctamente")
     
     # Calcular hash del nuevo inventario
     new_hash = calculate_hash(inventory)
