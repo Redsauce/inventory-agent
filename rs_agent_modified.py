@@ -295,28 +295,10 @@ def collect_npm_packages():
     
     return packages
 
-def collect_services():
-    """
-    Recopila servicios systemd activos
-    """
-    services = []
-    output = run_command("systemctl list-units --type=service --state=running --no-pager --no-legend")
-    
-    if output:
-        for line in output.split('\n'):
-            parts = line.split()
-            if parts:
-                service_name = parts[0].replace(".service", "")
-                services.append({
-                    "name": service_name,
-                    "status": "running"
-                })
-    
-    return services
-
 def collect_critical_software():
     """
     Detecta versiones de software crítico común
+    Útil para software compilado o instalado fuera de gestores de paquetes
     """
     software = {}
     
@@ -407,7 +389,6 @@ def send_to_rsm(inventory):
     print(f"     - Sistema (dpkg/rpm): {dpkg_count + rpm_count}")
     print(f"     - Python (pip): {pip_count}")
     print(f"     - Node.js (npm): {npm_count}")
-    print(f"   • Services: {len(inventory.get('services', []))}")
     print(f"   • Critical software: {len(inventory.get('critical_software', {}))}")
     
     # 🔍 DEBUG 2: Mostrar JSON (primeros 800 caracteres)
@@ -595,10 +576,6 @@ def main():
     inventory["packages"] = all_packages
     print(f"   ✅ Total unificado: {len(all_packages)} paquetes")
     
-    print("⚙️ Recopilando servicios activos...")
-    inventory["services"] = collect_services()
-    print(f"   → {len(inventory['services'])} servicios activos")
-    
     print("🔧 Detectando software crítico...")
     inventory["critical_software"] = collect_critical_software()
     print(f"   → {len(inventory['critical_software'])} aplicaciones detectadas")
@@ -654,7 +631,7 @@ def main():
     print(f"   • Sistema: {inventory['system']['os']['name']} {inventory['system']['os']['version']}")
     print(f"   • Hostname: {inventory['system']['hostname']}")
     print(f"   • Total paquetes: {total_packages}")
-    print(f"   • Servicios activos: {len(inventory['services'])}")
+    print(f"   • Software crítico: {len(inventory['critical_software'])}")
     print(f"   • Archivo: {output_path}")
     print(f"   • Tamaño: {os.path.getsize(output_path) / 1024:.2f} KB")
     print()
