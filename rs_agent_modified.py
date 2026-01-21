@@ -395,9 +395,18 @@ def send_to_rsm(inventory):
     
     # 🔍 DEBUG 1: Información básica del inventario
     print(f"\n🔍 DEBUG - Estructura del inventario:")
-    print(f"   • System packages: {len(inventory.get('system_packages', []))}")
-    print(f"   • Pip packages: {len(inventory.get('pip_packages', []))}")
-    print(f"   • NPM packages: {len(inventory.get('npm_packages', []))}")
+    print(f"   • Total packages: {len(inventory.get('packages', []))}")
+    
+    # Contar por tipo de manager
+    packages = inventory.get('packages', [])
+    dpkg_count = sum(1 for p in packages if p.get('manager') == 'dpkg')
+    rpm_count = sum(1 for p in packages if p.get('manager') == 'rpm')
+    pip_count = sum(1 for p in packages if p.get('manager') == 'pip')
+    npm_count = sum(1 for p in packages if p.get('manager') == 'npm')
+    
+    print(f"     - Sistema (dpkg/rpm): {dpkg_count + rpm_count}")
+    print(f"     - Python (pip): {pip_count}")
+    print(f"     - Node.js (npm): {npm_count}")
     print(f"   • Services: {len(inventory.get('services', []))}")
     print(f"   • Critical software: {len(inventory.get('critical_software', {}))}")
     
@@ -570,16 +579,21 @@ def main():
     inventory["hardware"] = collect_hardware()
     
     print("📦 Recopilando paquetes del sistema...")
-    inventory["system_packages"] = collect_packages()
-    print(f"   → {len(inventory['system_packages'])} paquetes encontrados")
+    system_packages = collect_packages()
+    print(f"   → {len(system_packages)} paquetes del sistema")
     
     print("🐍 Recopilando paquetes Python...")
-    inventory["pip_packages"] = collect_pip_packages()
-    print(f"   → {len(inventory['pip_packages'])} paquetes pip encontrados")
+    pip_packages = collect_pip_packages()
+    print(f"   → {len(pip_packages)} paquetes Python")
     
     print("🔗 Recopilando paquetes Node.js...")
-    inventory["npm_packages"] = collect_npm_packages()
-    print(f"   → {len(inventory['npm_packages'])} paquetes npm encontrados")
+    npm_packages = collect_npm_packages()
+    print(f"   → {len(npm_packages)} paquetes Node.js")
+    
+    # ✨ UNIFICAR TODOS LOS PAQUETES EN UN SOLO ARRAY
+    all_packages = system_packages + pip_packages + npm_packages
+    inventory["packages"] = all_packages
+    print(f"   ✅ Total unificado: {len(all_packages)} paquetes")
     
     print("⚙️ Recopilando servicios activos...")
     inventory["services"] = collect_services()
@@ -628,9 +642,7 @@ def main():
         sys.exit(1)
     
     # Estadísticas finales
-    total_packages = (len(inventory['system_packages']) + 
-                     len(inventory['pip_packages']) + 
-                     len(inventory['npm_packages']))
+    total_packages = len(inventory['packages'])
     
     print("\n" + "="*60)
     if previous_hash:
