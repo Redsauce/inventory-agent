@@ -385,47 +385,34 @@ def save_hash(hash_value):
 
 def send_to_rsm(inventory):
     """
-    Envía los system_packages a RSM mediante curl
+    Envía el inventario completo a RSM mediante curl
     Retorna True si el envío fue exitoso, False en caso contrario
     """
-    print("\n📤 Enviando datos a RSM...")
+    print("\n📤 Enviando inventario completo a RSM...")
     
-    system_packages = inventory.get('system_packages', [])
+    # Convertir inventario completo a JSON
+    rsm_json = json.dumps(inventory, ensure_ascii=False, indent=2)
     
-    if not system_packages:
-        print("⚠️ No hay paquetes del sistema para enviar")
-        return True
+    # 🔍 DEBUG 1: Información básica del inventario
+    print(f"\n🔍 DEBUG - Estructura del inventario:")
+    print(f"   • System packages: {len(inventory.get('system_packages', []))}")
+    print(f"   • Pip packages: {len(inventory.get('pip_packages', []))}")
+    print(f"   • NPM packages: {len(inventory.get('npm_packages', []))}")
+    print(f"   • Services: {len(inventory.get('services', []))}")
+    print(f"   • Critical software: {len(inventory.get('critical_software', {}))}")
     
-    # Transformar al formato RSM
-    rsm_data = []
-    for pkg in system_packages:
-        rsm_data.append({
-            "77": pkg["name"],
-            "78": pkg["version"],
-            "79": SERVER_ID
-        })
+    # 🔍 DEBUG 2: Mostrar JSON (primeros 800 caracteres)
+    print(f"\n🔍 DEBUG - JSON generado (primeros 800 chars):")
+    print(f"   {rsm_json[:800]}...")
+    print(f"🔍 DEBUG - Longitud total del JSON: {len(rsm_json)} caracteres ({len(rsm_json)/1024:.2f} KB)")
     
-    # 🔍 DEBUG 1: Mostrar muestra de datos
-    print(f"\n🔍 DEBUG - Total paquetes a enviar: {len(rsm_data)}")
-    print(f"🔍 DEBUG - Muestra de los primeros 3 paquetes:")
-    for i, pkg in enumerate(rsm_data[:3]):
-        print(f"   [{i+1}] {pkg}")
-    
-    # Convertir a JSON string
-    rsm_json = json.dumps(rsm_data, ensure_ascii=False)
-    
-    # 🔍 DEBUG 2: Mostrar JSON (primeros 500 caracteres)
-    print(f"\n🔍 DEBUG - JSON generado (primeros 500 chars):")
-    print(f"   {rsm_json[:500]}...")
-    print(f"🔍 DEBUG - Longitud total del JSON: {len(rsm_json)} caracteres")
-    
-    # 🔍 DEBUG 3: Guardar JSON en archivo temporal para inspección
+    # 🔍 DEBUG 3: Guardar JSON completo en archivo temporal
     debug_json_path = "/tmp/rsm_debug_payload.json"
     with open(debug_json_path, 'w') as f:
         f.write(rsm_json)
     print(f"🔍 DEBUG - JSON completo guardado en: {debug_json_path}")
     
-    # Construir comando curl (SIN --silent para ver respuesta completa)
+    # Construir comando curl
     curl_cmd = [
         'curl',
         '--location', RSM_API_URL,
@@ -434,16 +421,15 @@ def send_to_rsm(inventory):
         '--form', f'RStoken={RSM_TOKEN}',
         '--max-time', '30',
         '--show-error',
-        '--verbose'  # 🔍 Añadir verbose para ver más detalles
+        '--verbose'
     ]
     
-    # 🔍 DEBUG 4: Mostrar comando curl exacto
-    print(f"\n🔍 DEBUG - Comando curl a ejecutar:")
-    print(f"   {' '.join(curl_cmd[:6])}...")  # Mostrar primeros argumentos
-    print(f"🔍 DEBUG - Configuración:")
+    # 🔍 DEBUG 4: Mostrar configuración
+    print(f"\n🔍 DEBUG - Configuración RSM:")
     print(f"   • URL: {RSM_API_URL}")
     print(f"   • Token: {RSM_TOKEN}")
     print(f"   • Server ID: {SERVER_ID}")
+    print(f"   • Hostname: {inventory.get('system', {}).get('hostname', 'N/A')}")
     
     try:
         print(f"\n🔄 Ejecutando petición a RSM...")
@@ -465,13 +451,17 @@ def send_to_rsm(inventory):
         
         if result.stderr:
             print(f"🔍 DEBUG - STDERR (info de curl):")
-            print(f"   {result.stderr[:500]}...")  # Primeros 500 caracteres
+            # Mostrar más del stderr porque tiene info útil
+            stderr_lines = result.stderr.split('\n')
+            for line in stderr_lines[:30]:  # Primeras 30 líneas
+                if line.strip():
+                    print(f"   {line}")
         
         if result.returncode == 0:
-            print(f"\n✅ Datos enviados correctamente ({len(system_packages)} paquetes)")
+            print(f"\n✅ Inventario completo enviado correctamente ({len(rsm_json)/1024:.2f} KB)")
             return True
         else:
-            print(f"\n❌ ERROR: Fallo al enviar datos a RSM")
+            print(f"\n❌ ERROR: Fallo al enviar inventario a RSM")
             return False
             
     except subprocess.TimeoutExpired:
