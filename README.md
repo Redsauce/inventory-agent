@@ -1,25 +1,25 @@
-# 🤖 Redsauce Inventory Agent
+# Redsauce Inventory Agent
 
 Agente de inventario automático para sistemas Linux con **auto-actualización** desde GitHub Releases.
 
-## 🚀 Instalación (un comando)
+## Instalación
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/redsauce/inventory-agent/main/install.sh | sudo bash
 ```
 
-## 📋 Funcionalidades
+## Funcionalidades
 
-- ✅ Recopila hardware (CPU, RAM, discos, red) y software instalado (dpkg/rpm/pip/npm)
-- ✅ Detecta software crítico (Apache, MySQL, PHP, Docker...) y servicios activos
-- ✅ **Solo actualiza si detecta cambios** en el sistema
-- ✅ **Auto-actualización automática** desde GitHub Releases
-- ✅ Ejecución diaria programada (3:00 AM)
+-  Recopila hardware (CPU, RAM, discos, red) y software instalado (dpkg/rpm/pip/npm)
+-  Detecta software crítico (Apache, MySQL, PHP, Docker...) y servicios activos
+-  **Solo actualiza si detecta cambios** en el sistema
+-  **Auto-actualización automática** desde GitHub Releases
+-  Ejecución diaria programada (3:00 AM)
 
-## 💻 Uso básico
+##  Uso básico
 
 ```bash
-# Ejecutar manualmente
+# Ejecución manual
 sudo python3 /opt/rs-agent/rs_agent.py
 
 # Ver inventario
@@ -36,7 +36,7 @@ sudo bash /opt/rs-agent/uninstall.sh
 
 ---
 
-## 🔄 Sistema de Auto-actualización
+## Sistema de Auto-actualización
 
 El agente comprueba GitHub Releases cada vez que se ejecuta. Si detecta una versión nueva, se actualiza automáticamente.
 
@@ -76,13 +76,13 @@ grep "AGENT_VERSION" /opt/rs-agent/rs_agent.py
 
 ---
 
-## 🔧 Requisitos
+## Requisitos
 
 - Linux (Ubuntu, Debian, RHEL, CentOS, Fedora)
 - Python 3.6+ con `requests`
 - Permisos root
 
-## 🛡️ Seguridad
+## Seguridad
 
 - Solo lectura (no modifica el sistema)
 - No recopila contraseñas ni claves
