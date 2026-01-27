@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Redsauce Inventory Agent - Recopilador de inventario de sistemas Linux
 Versión: 0.1.0 (con detección de cambios y auto-actualización)
@@ -12,6 +13,7 @@ import socket
 import os
 import sys
 import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +38,11 @@ OUTPUT_DIR = "/var/lib/rs-agent"
 OUTPUT_FILE = "inventory.json"
 HASH_FILE = ".inventory.hash"
 
+# Configuración RSM (modificar según cliente)
+RSM_API_URL = "https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
+RSM_TOKEN = "429bd269e5c88dc73c14c69bf0e87717"  # ⚠️ CAMBIAR POR CLIENTE
+SERVER_ID = "1"  # ⚠️ CAMBIAR POR CLIENTE
+
 # ============ UTILIDADES ============
 
 def run_command(cmd, shell=True, ignore_errors=False):
@@ -54,11 +61,11 @@ def run_command(cmd, shell=True, ignore_errors=False):
             return None
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
-        print(f"⚠️  Timeout ejecutando: {cmd}")
+        print(f"⚠️ Timeout ejecutando: {cmd}")
         return None
     except Exception as e:
         if not ignore_errors:
-            print(f"⚠️  Error ejecutando {cmd}: {e}")
+            print(f"⚠️ Error ejecutando {cmd}: {e}")
         return None
 
 def detect_distro():
@@ -240,7 +247,7 @@ def collect_packages():
     elif pkg_manager in ["rpm", "yum", "dnf"]:
         return collect_packages_rpm()
     else:
-        print("⚠️  No se detectó un gestor de paquetes compatible")
+        print("⚠️ No se detectó un gestor de paquetes compatible")
         return []
 
 def collect_pip_packages():
@@ -289,56 +296,96 @@ def collect_npm_packages():
     
     return packages
 
-def collect_services():
-    """
-    Recopila servicios systemd activos
-    """
-    services = []
-    output = run_command("systemctl list-units --type=service --state=running --no-pager --no-legend")
-    
-    if output:
-        for line in output.split('\n'):
-            parts = line.split()
-            if parts:
-                service_name = parts[0].replace(".service", "")
-                services.append({
-                    "name": service_name,
-                    "status": "running"
-                })
-    
-    return services
-
 def collect_critical_software():
     """
     Detecta versiones de software crítico común
+    Retorna array de objetos con estructura: {name, version, raw_output}
+    Útil para software compilado o instalado fuera de gestores de paquetes
     """
-    software = {}
+    software = []
     
-    # Lista de software a detectar
+    # Lista de software a detectar con regex para extraer versión
     checks = {
-        "apache2": "apache2 -v",
-        "httpd": "httpd -v",
-        "nginx": "nginx -v",
-        "mysql": "mysql --version",
-        "mysqld": "mysqld --version",
-        "postgresql": "psql --version",
-        "postgres": "postgres --version",
-        "docker": "docker --version",
-        "php": "php --version",
-        "node": "node --version",
-        "java": "java -version",
-        "python3": "python3 --version",
-        "openssh": "ssh -V",
-        "openssl": "openssl version",
-        "git": "git --version"
+        "apache2": {
+            "cmd": "apache2 -v",
+            "regex": r"Apache/(\d+\.\d+\.\d+)"
+        },
+        "httpd": {
+            "cmd": "httpd -v",
+            "regex": r"Apache/(\d+\.\d+\.\d+)"
+        },
+        "nginx": {
+            "cmd": "nginx -v",
+            "regex": r"nginx/(\d+\.\d+\.\d+)"
+        },
+        "mysql": {
+            "cmd": "mysql --version",
+            "regex": r"Ver (\d+\.\d+\.\d+)"
+        },
+        "mysqld": {
+            "cmd": "mysqld --version",
+            "regex": r"Ver (\d+\.\d+\.\d+)"
+        },
+        "postgresql": {
+            "cmd": "psql --version",
+            "regex": r"PostgreSQL[)\s]+(\d+\.\d+(?:\.\d+)?)"
+        },
+        "postgres": {
+            "cmd": "postgres --version",
+            "regex": r"PostgreSQL[)\s]+(\d+\.\d+(?:\.\d+)?)"
+        },
+        "docker": {
+            "cmd": "docker --version",
+            "regex": r"Docker version (\d+\.\d+\.\d+)"
+        },
+        "php": {
+            "cmd": "php --version",
+            "regex": r"PHP (\d+\.\d+\.\d+)"
+        },
+        "node": {
+            "cmd": "node --version",
+            "regex": r"v(\d+\.\d+\.\d+)"
+        },
+        "java": {
+            "cmd": "java -version",
+            "regex": r'version "(\d+\.\d+\.\d+)'
+        },
+        "python3": {
+            "cmd": "python3 --version",
+            "regex": r"Python (\d+\.\d+\.\d+)"
+        },
+        "openssh": {
+            "cmd": "ssh -V",
+            "regex": r"OpenSSH_(\d+\.\d+p?\d*)"
+        },
+        "openssl": {
+            "cmd": "openssl version",
+            "regex": r"OpenSSL (\d+\.\d+\.\d+[a-z]?)"
+        },
+        "git": {
+            "cmd": "git --version",
+            "regex": r"git version (\d+\.\d+\.\d+)"
+        }
     }
     
-    for name, cmd in checks.items():
-        version = run_command(cmd, ignore_errors=True)
-        if version:
-            # Extraer solo la primera línea (suele tener la versión)
-            version = version.split('\n')[0]
-            software[name] = version
+    for name, config in checks.items():
+        raw_output = run_command(config["cmd"], ignore_errors=True)
+        if raw_output:
+            # Extraer solo la primera línea
+            first_line = raw_output.split('\n')[0]
+            
+            # Intentar extraer versión limpia con regex
+            version = "unknown"
+            if "regex" in config:
+                match = re.search(config["regex"], first_line)
+                if match:
+                    version = match.group(1)
+            
+            software.append({
+                "name": name,
+                "version": version,
+                "raw_output": first_line
+            })
     
     return software
 
@@ -375,7 +422,114 @@ def save_hash(hash_value):
     with open(hash_path, 'w') as f:
         f.write(hash_value)
 
-# ============ MAIN ============
+# ============ ENVÍO A RSM ============
+
+def send_to_rsm(inventory):
+    """
+    Envía el inventario completo a RSM mediante curl
+    Retorna True si el envío fue exitoso, False en caso contrario
+    """
+    print("\n📤 Enviando inventario completo a RSM...")
+    
+    # Convertir inventario completo a JSON
+    rsm_json = json.dumps(inventory, ensure_ascii=False, indent=2)
+    
+    # 🔍 DEBUG 1: Información básica del inventario
+    print(f"\n🔍 DEBUG - Estructura del inventario:")
+    print(f"   • Total packages: {len(inventory.get('packages', []))}")
+    
+    # Contar por tipo de manager
+    packages = inventory.get('packages', [])
+    dpkg_count = sum(1 for p in packages if p.get('manager') == 'dpkg')
+    rpm_count = sum(1 for p in packages if p.get('manager') == 'rpm')
+    pip_count = sum(1 for p in packages if p.get('manager') == 'pip')
+    npm_count = sum(1 for p in packages if p.get('manager') == 'npm')
+    
+    print(f"     - Sistema (dpkg/rpm): {dpkg_count + rpm_count}")
+    print(f"     - Python (pip): {pip_count}")
+    print(f"     - Node.js (npm): {npm_count}")
+    print(f"   • Critical software: {len(inventory.get('critical_software', []))}")
+    
+    # Mostrar software crítico detectado con versiones
+    critical_sw = inventory.get('critical_software', [])
+    if critical_sw:
+        print(f"     - Detectados:")
+        for sw in critical_sw[:5]:  # Mostrar solo los primeros 5
+            print(f"       · {sw['name']}: {sw['version']}")
+        if len(critical_sw) > 5:
+            print(f"       · ... y {len(critical_sw) - 5} más")
+    
+    # 🔍 DEBUG 2: Mostrar JSON (primeros 800 caracteres)
+    print(f"\n🔍 DEBUG - JSON generado (primeros 800 chars):")
+    print(f"   {rsm_json[:800]}...")
+    print(f"🔍 DEBUG - Longitud total del JSON: {len(rsm_json)} caracteres ({len(rsm_json)/1024:.2f} KB)")
+    
+    # 🔍 DEBUG 3: Guardar JSON completo en archivo temporal
+    debug_json_path = "/tmp/rsm_debug_payload.json"
+    with open(debug_json_path, 'w') as f:
+        f.write(rsm_json)
+    print(f"🔍 DEBUG - JSON completo guardado en: {debug_json_path}")
+    
+    # Construir comando curl
+    curl_cmd = [
+        'curl',
+        '--location', RSM_API_URL,
+        '--form', 'RStrigger=newServerData',
+        '--form', f'RSdata={rsm_json}',
+        '--form', f'RStoken={RSM_TOKEN}',
+        '--max-time', '30',
+        '--show-error',
+        '--verbose'
+    ]
+    
+    # 🔍 DEBUG 4: Mostrar configuración
+    print(f"\n🔍 DEBUG - Configuración RSM:")
+    print(f"   • URL: {RSM_API_URL}")
+    print(f"   • Token: {RSM_TOKEN}")
+    print(f"   • Server ID: {SERVER_ID}")
+    print(f"   • Hostname: {inventory.get('system', {}).get('hostname', 'N/A')}")
+    
+    try:
+        print(f"\n🔄 Ejecutando petición a RSM...")
+        
+        # Ejecutar curl
+        result = subprocess.run(
+            curl_cmd,
+            capture_output=True,
+            text=True,
+            timeout=35
+        )
+        
+        # 🔍 DEBUG 5: Mostrar respuesta completa
+        print(f"\n🔍 DEBUG - Código de salida: {result.returncode}")
+        
+        if result.stdout:
+            print(f"🔍 DEBUG - STDOUT del servidor:")
+            print(f"   {result.stdout}")
+        
+        if result.stderr:
+            print(f"🔍 DEBUG - STDERR (info de curl):")
+            # Mostrar más del stderr porque tiene info útil
+            stderr_lines = result.stderr.split('\n')
+            for line in stderr_lines[:30]:  # Primeras 30 líneas
+                if line.strip():
+                    print(f"   {line}")
+        
+        if result.returncode == 0:
+            print(f"\n✅ Inventario completo enviado correctamente ({len(rsm_json)/1024:.2f} KB)")
+            return True
+        else:
+            print(f"\n❌ ERROR: Fallo al enviar inventario a RSM")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("❌ ERROR: Timeout al enviar datos a RSM (>30s)")
+        return False
+    except Exception as e:
+        print(f"❌ ERROR: Excepción al enviar datos a RSM: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 # ============ AUTO-ACTUALIZACIÓN ============
 
@@ -426,7 +580,7 @@ def download_update():
         return True
         
     except Exception as e:
-        print(f"⚠️  Error actualizando: {e}")
+        print(f"⚠️ Error actualizando: {e}")
         # Restaurar backup si existe
         if os.path.exists(backup_path):
             os.rename(backup_path, script_path)
@@ -470,28 +624,35 @@ def main():
     print("📋 Recopilando información del sistema...")
     inventory["system"] = collect_system_info()
     
-    print("🖥️  Recopilando información de hardware...")
+    print("🖥️ Recopilando información de hardware...")
     inventory["hardware"] = collect_hardware()
     
     print("📦 Recopilando paquetes del sistema...")
-    inventory["system_packages"] = collect_packages()
-    print(f"   → {len(inventory['system_packages'])} paquetes encontrados")
+    system_packages = collect_packages()
+    print(f"   → {len(system_packages)} paquetes del sistema")
     
     print("🐍 Recopilando paquetes Python...")
-    inventory["pip_packages"] = collect_pip_packages()
-    print(f"   → {len(inventory['pip_packages'])} paquetes pip encontrados")
+    pip_packages = collect_pip_packages()
+    print(f"   → {len(pip_packages)} paquetes Python")
     
     print("🔗 Recopilando paquetes Node.js...")
-    inventory["npm_packages"] = collect_npm_packages()
-    print(f"   → {len(inventory['npm_packages'])} paquetes npm encontrados")
+    npm_packages = collect_npm_packages()
+    print(f"   → {len(npm_packages)} paquetes Node.js")
     
-    print("⚙️  Recopilando servicios activos...")
-    inventory["services"] = collect_services()
-    print(f"   → {len(inventory['services'])} servicios activos")
+    # ✨ UNIFICAR TODOS LOS PAQUETES EN UN SOLO ARRAY
+    all_packages = system_packages + pip_packages + npm_packages
+    inventory["packages"] = all_packages
+    print(f"   ✅ Total unificado: {len(all_packages)} paquetes")
     
     print("🔧 Detectando software crítico...")
     inventory["critical_software"] = collect_critical_software()
-    print(f"   → {len(inventory['critical_software'])} aplicaciones detectadas")
+    critical_count = len(inventory['critical_software'])
+    print(f"   → {critical_count} aplicaciones detectadas")
+    
+    # Mostrar algunas versiones detectadas
+    if critical_count > 0:
+        parsed_count = sum(1 for sw in inventory['critical_software'] if sw['version'] != 'unknown')
+        print(f"   → {parsed_count}/{critical_count} versiones parseadas correctamente")
     
     # Calcular hash del nuevo inventario
     new_hash = calculate_hash(inventory)
@@ -518,10 +679,21 @@ def main():
     # Guardar nuevo hash
     save_hash(new_hash)
     
+    # Enviar datos a RSM (solo cuando hay cambios)
+    if not send_to_rsm(inventory):
+        print("\n" + "="*60)
+        print("❌ ERROR CRÍTICO: No se pudo enviar el inventario a RSM")
+        print("="*60)
+        print("\n⚠️ Verifica:")
+        print(f"   • Token RSM: {RSM_TOKEN}")
+        print(f"   • Server ID: {SERVER_ID}")
+        print(f"   • URL: {RSM_API_URL}")
+        print(f"   • Conectividad de red")
+        print()
+        sys.exit(1)
+    
     # Estadísticas finales
-    total_packages = (len(inventory['system_packages']) + 
-                     len(inventory['pip_packages']) + 
-                     len(inventory['npm_packages']))
+    total_packages = len(inventory['packages'])
     
     print("\n" + "="*60)
     if previous_hash:
@@ -533,7 +705,7 @@ def main():
     print(f"   • Sistema: {inventory['system']['os']['name']} {inventory['system']['os']['version']}")
     print(f"   • Hostname: {inventory['system']['hostname']}")
     print(f"   • Total paquetes: {total_packages}")
-    print(f"   • Servicios activos: {len(inventory['services'])}")
+    print(f"   • Software crítico: {len(inventory['critical_software'])}")
     print(f"   • Archivo: {output_path}")
     print(f"   • Tamaño: {os.path.getsize(output_path) / 1024:.2f} KB")
     print()
@@ -542,7 +714,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n⚠️  Proceso interrumpido por el usuario")
+        print("\n\n⚠️ Proceso interrumpido por el usuario")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Error inesperado: {e}")
