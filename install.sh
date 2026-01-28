@@ -1,6 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # Redsauce Inventory Agent - Instalador One-Liner
+# Version 0.2.0 - Optimizado para deteccion CVE
 # ============================================================================
 #
 # Uso:
@@ -10,13 +11,13 @@
 set -e
 
 # ============================================================================
-# CONFIGURACIÓN
+# CONFIGURACION
 # ============================================================================
 
-# URL de GitHub donde está el agente
+# URL de GitHub donde esta el agente
 GITHUB_RAW_URL="https://raw.githubusercontent.com/redsauce/inventory-agent/main"
 
-# Directorios de instalación
+# Directorios de instalacion
 INSTALL_DIR="/opt/rs-agent"
 DATA_DIR="/var/lib/rs-agent"
 LOG_FILE="/var/log/rs-agent.log"
@@ -36,25 +37,26 @@ NC='\033[0m'
 # ============================================================================
 
 log() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}[OK]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 info() {
-    echo -e "${BLUE}ℹ${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 banner() {
     echo ""
     echo "============================================================================"
-    echo "  🤖 Redsauce Inventory Agent - Instalador"
+    echo "  Redsauce Inventory Agent - Instalador v0.2.0"
+    echo "  Optimizado para deteccion de vulnerabilidades CVE"
     echo "============================================================================"
     echo ""
 }
@@ -83,21 +85,21 @@ detect_distro() {
         VERSION="unknown"
     fi
     
-    info "Distribución: $DISTRO $VERSION"
+    info "Distribucion: $DISTRO $VERSION"
 }
 
 check_dependencies() {
     info "Verificando dependencias..."
     
-    # Verificar curl (debería estar si llegamos aquí)
+    # Verificar curl (deberia estar si llegamos aqui)
     if ! command -v curl &> /dev/null; then
-        error "curl no está instalado"
+        error "curl no esta instalado"
         exit 1
     fi
     
     # Verificar Python 3
     if ! command -v python3 &> /dev/null; then
-        warn "Python 3 no está instalado, instalando..."
+        warn "Python 3 no esta instalado, instalando..."
         install_python
     else
         log "Python 3 encontrado: $(python3 --version)"
@@ -118,7 +120,7 @@ install_python() {
             fi
             ;;
         *)
-            error "Distribución no soportada: $DISTRO"
+            error "Distribucion no soportada: $DISTRO"
             exit 1
             ;;
     esac
@@ -151,25 +153,38 @@ download_agent() {
         error "URL intentada: $AGENT_URL"
         error ""
         error "Verifica que:"
-        error "  • Tienes conexión a internet"
-        error "  • GitHub es accesible desde este servidor"
+        error "  - Tienes conexion a internet"
+        error "  - GitHub es accesible desde este servidor"
         exit 1
     fi
 }
 
+download_analyzer() {
+    info "Descargando herramienta de analisis..."
+    
+    ANALYZER_URL="${GITHUB_RAW_URL}/analyze_inventory.py"
+    
+    if curl -fsSL "$ANALYZER_URL" -o "$INSTALL_DIR/analyze_inventory.py"; then
+        chmod +x "$INSTALL_DIR/analyze_inventory.py"
+        log "Analizador descargado: $INSTALL_DIR/analyze_inventory.py"
+    else
+        warn "No se pudo descargar el analizador (opcional)"
+    fi
+}
+
 setup_cron() {
-    info "Configurando ejecución automática..."
+    info "Configurando ejecucion automatica..."
     
     CRON_JOB="0 3 * * * /usr/bin/python3 $INSTALL_DIR/rs_agent.py >> $LOG_FILE 2>&1"
     
-    # Añadir a crontab de root (evitar duplicados)
+    # Anadir a crontab de root (evitar duplicados)
     (crontab -l 2>/dev/null | grep -v "$INSTALL_DIR/rs_agent.py"; echo "$CRON_JOB") | crontab -
     
-    log "Cron configurado (ejecución diaria a las 3:00 AM)"
+    log "Cron configurado (ejecucion diaria a las 3:00 AM)"
 }
 
 test_agent() {
-    info "Ejecutando primera recopilación..."
+    info "Ejecutando primera recopilacion..."
     
     if /usr/bin/python3 "$INSTALL_DIR/rs_agent.py" >> "$LOG_FILE" 2>&1; then
         if [ -f "$DATA_DIR/inventory.json" ]; then
@@ -179,7 +194,7 @@ test_agent() {
         fi
     fi
     
-    warn "No se pudo generar el inventario en la primera ejecución"
+    warn "No se pudo generar el inventario en la primera ejecucion"
     info "Revisa el log: tail -f $LOG_FILE"
     return 1
 }
@@ -187,24 +202,24 @@ test_agent() {
 create_uninstaller() {
     cat > "$INSTALL_DIR/uninstall.sh" << 'UNINSTALL_EOF'
 #!/bin/bash
-echo "🗑️  Desinstalando Redsauce Inventory Agent..."
+echo "Desinstalando Redsauce Inventory Agent..."
 
 # Eliminar cron
 crontab -l 2>/dev/null | grep -v "/opt/rs-agent/rs_agent.py" | crontab -
-echo "✓ Entrada de cron eliminada"
+echo "[OK] Entrada de cron eliminada"
 
 # Preguntar antes de borrar datos
-read -p "¿Eliminar datos de inventario? (s/N): " -n 1 -r
+read -p "Eliminar datos de inventario? (s/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Ss]$ ]]; then
     rm -rf /var/lib/rs-agent
-    echo "✓ Datos eliminados"
+    echo "[OK] Datos eliminados"
 fi
 
 rm -rf /opt/rs-agent
 rm -f /var/log/rs-agent.log
 
-echo "✓ Agente desinstalado"
+echo "[OK] Agente desinstalado"
 UNINSTALL_EOF
     
     chmod +x "$INSTALL_DIR/uninstall.sh"
@@ -213,26 +228,31 @@ UNINSTALL_EOF
 print_summary() {
     echo ""
     echo "============================================================================"
-    echo "  ✅ INSTALACIÓN COMPLETADA"
+    echo "  INSTALACION COMPLETADA"
     echo "============================================================================"
     echo ""
-    echo "📁 Ubicaciones:"
-    echo "   • Agente:      $INSTALL_DIR/rs_agent.py"
-    echo "   • Inventario:  $DATA_DIR/inventory.json"
-    echo "   • Logs:        $LOG_FILE"
+    echo "Ubicaciones:"
+    echo "   - Agente:      $INSTALL_DIR/rs_agent.py"
+    echo "   - Analizador:  $INSTALL_DIR/analyze_inventory.py"
+    echo "   - Inventario:  $DATA_DIR/inventory.json"
+    echo "   - Logs:        $LOG_FILE"
     echo ""
-    echo "⏰ Ejecución:"
-    echo "   • Automática:  Diariamente a las 3:00 AM"
-    echo "   • Manual:      sudo python3 $INSTALL_DIR/rs_agent.py"
+    echo "Ejecucion:"
+    echo "   - Automatica:  Diariamente a las 3:00 AM"
+    echo "   - Manual:      sudo python3 $INSTALL_DIR/rs_agent.py"
     echo ""
-    echo "📊 Ver inventario:"
+    echo "Ver inventario:"
     echo "   cat $DATA_DIR/inventory.json | python3 -m json.tool"
     echo ""
-    echo "🔄 Funcionamiento:"
-    echo "   • Solo actualiza si detecta cambios en el sistema"
-    echo "   • Ahorra espacio y logs innecesarios"
+    echo "Analizar inventario:"
+    echo "   sudo python3 $INSTALL_DIR/analyze_inventory.py"
     echo ""
-    echo "🗑️  Desinstalar:"
+    echo "Funcionamiento:"
+    echo "   - Envia inventario completo en cada ejecucion a RSM"
+    echo "   - RSM detecta y gestiona los cambios"
+    echo "   - Optimizado para deteccion de vulnerabilidades CVE"
+    echo ""
+    echo "Desinstalar:"
     echo "   sudo bash $INSTALL_DIR/uninstall.sh"
     echo ""
     echo "============================================================================"
@@ -251,9 +271,10 @@ main() {
     detect_distro
     check_dependencies
     
-    # Instalación
+    # Instalacion
     create_directories
     download_agent
+    download_analyzer
     setup_cron
     create_uninstaller
     
@@ -264,7 +285,7 @@ main() {
     # Resumen
     print_summary
     
-    log "Instalación exitosa"
+    log "Instalacion exitosa"
 }
 
 # Ejecutar
