@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Redsauce Inventory Agent - Recopilador de inventario de sistemas Linux
-Versión: 0.1.0 (con detección de cambios y auto-actualización)
+Version: 0.2.0
 Requiere: Permisos de root/sudo
 """
 
@@ -12,7 +12,6 @@ import platform
 import socket
 import os
 import sys
-import hashlib
 import re
 from datetime import datetime
 from pathlib import Path
@@ -22,26 +21,25 @@ try:
 except ImportError:
     requests = None
 
-# ============ CONFIGURACIÓN ============
+# ============ CONFIGURACION ============
 
-# Versión actual del agente
-AGENT_VERSION = "0.1.0"
+# Version actual del agente
+AGENT_VERSION = "0.2.0"
 
-# URLs de GitHub para auto-actualización
+# URLs de GitHub para auto-actualizacion
 GITHUB_API_URL = "https://api.github.com/repos/redsauce/inventory-agent/releases/latest"
 GITHUB_AGENT_URL = "https://raw.githubusercontent.com/redsauce/inventory-agent/main/rs_agent.py"
 
-# Directorio donde se guardará el inventario
+# Directorio donde se guardara el inventario
 OUTPUT_DIR = "/var/lib/rs-agent"
 
 # Archivos de salida
 OUTPUT_FILE = "inventory.json"
-HASH_FILE = ".inventory.hash"
 
-# Configuración RSM (modificar según cliente)
+# Configuracion RSM (modificar segun cliente)
 RSM_API_URL = "https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
-RSM_TOKEN = "429bd269e5c88dc73c14c69bf0e87717"  # ⚠️ CAMBIAR POR CLIENTE
-SERVER_ID = "1"  # ⚠️ CAMBIAR POR CLIENTE
+RSM_TOKEN = "429bd269e5c88dc73c14c69bf0e87717"  # CAMBIAR POR CLIENTE
+SERVER_ID = "1"  # CAMBIAR POR CLIENTE
 
 # ============ UTILIDADES ============
 
@@ -61,18 +59,18 @@ def run_command(cmd, shell=True, ignore_errors=False):
             return None
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
-        print(f"⚠️ Timeout ejecutando: {cmd}")
+        print(f"Timeout ejecutando: {cmd}")
         return None
     except Exception as e:
         if not ignore_errors:
-            print(f"⚠️ Error ejecutando {cmd}: {e}")
+            print(f"Error ejecutando {cmd}: {e}")
         return None
 
 def detect_distro():
     """
-    Detecta la distribución Linux
+    Detecta la distribucion Linux
     """
-    # Intentar con /etc/os-release (método moderno)
+    # Intentar con /etc/os-release (metodo moderno)
     if os.path.exists("/etc/os-release"):
         os_release = {}
         with open("/etc/os-release", "r") as f:
@@ -123,7 +121,7 @@ def get_package_manager():
 
 def collect_system_info():
     """
-    Información básica del sistema
+    Informacion basica del sistema (solo relevante para CVE)
     """
     distro = detect_distro()
     
@@ -138,69 +136,13 @@ def collect_system_info():
             "kernel": platform.release(),
             "architecture": platform.machine()
         },
-        "python_version": platform.python_version(),
-        "collected_at": datetime.now().isoformat()
+        "collected_at": datetime.now().isoformat(),
+        "agent_version": AGENT_VERSION
     }
-
-def collect_hardware():
-    """
-    Información de hardware
-    """
-    hardware = {}
-    
-    # CPU
-    cpu_info = run_command("lscpu")
-    if cpu_info:
-        for line in cpu_info.split('\n'):
-            if "Model name:" in line:
-                hardware["cpu_model"] = line.split(":", 1)[1].strip()
-            elif "CPU(s):" in line and "NUMA" not in line:
-                hardware["cpu_cores"] = line.split(":", 1)[1].strip()
-    
-    # RAM
-    mem_info = run_command("free -m")
-    if mem_info:
-        lines = mem_info.split('\n')
-        if len(lines) > 1:
-            mem_parts = lines[1].split()
-            if len(mem_parts) > 1:
-                hardware["ram_mb"] = mem_parts[1]
-    
-    # Discos
-    disks = []
-    disk_info = run_command("lsblk -b -d -o NAME,SIZE,TYPE,MODEL -n")
-    if disk_info:
-        for line in disk_info.split('\n'):
-            parts = line.split()
-            if len(parts) >= 3 and parts[2] == "disk":
-                disks.append({
-                    "device": f"/dev/{parts[0]}",
-                    "size_bytes": parts[1],
-                    "model": " ".join(parts[3:]) if len(parts) > 3 else "Unknown"
-                })
-    hardware["disks"] = disks
-    
-    # Interfaces de red
-    interfaces = []
-    ip_info = run_command("ip -o addr show")
-    if ip_info:
-        for line in ip_info.split('\n'):
-            parts = line.split()
-            if len(parts) >= 4:
-                interface = parts[1]
-                ip = parts[3].split('/')[0]
-                if interface != "lo":  # Ignorar loopback
-                    interfaces.append({
-                        "name": interface,
-                        "ip": ip
-                    })
-    hardware["network_interfaces"] = interfaces
-    
-    return hardware
 
 def collect_packages_dpkg():
     """
-    Recopila paquetes instalados vía dpkg (Debian/Ubuntu)
+    Recopila paquetes instalados via dpkg (Debian/Ubuntu)
     """
     packages = []
     output = run_command("dpkg-query -W -f='${Package}\t${Version}\t${Status}\n'")
@@ -219,7 +161,7 @@ def collect_packages_dpkg():
 
 def collect_packages_rpm():
     """
-    Recopila paquetes instalados vía rpm (RHEL/CentOS/Fedora)
+    Recopila paquetes instalados via rpm (RHEL/CentOS/Fedora)
     """
     packages = []
     output = run_command("rpm -qa --queryformat '%{NAME}\t%{VERSION}-%{RELEASE}\n'")
@@ -247,7 +189,7 @@ def collect_packages():
     elif pkg_manager in ["rpm", "yum", "dnf"]:
         return collect_packages_rpm()
     else:
-        print("⚠️ No se detectó un gestor de paquetes compatible")
+        print("No se detecto un gestor de paquetes compatible")
         return []
 
 def collect_pip_packages():
@@ -268,7 +210,7 @@ def collect_pip_packages():
                         "version": pkg["version"],
                         "manager": "pip"
                     })
-                break  # Si funcionó, no intentar el otro
+                break  # Si funciono, no intentar el otro
             except json.JSONDecodeError:
                 continue
     
@@ -298,13 +240,12 @@ def collect_npm_packages():
 
 def collect_critical_software():
     """
-    Detecta versiones de software crítico común
-    Retorna array de objetos con estructura: {name, version, raw_output}
-    Útil para software compilado o instalado fuera de gestores de paquetes
+    Detecta versiones de software critico comun
+    Retorna array de objetos con estructura: {name, version}
     """
     software = []
     
-    # Lista de software a detectar con regex para extraer versión
+    # Lista de software a detectar con regex para extraer version
     checks = {
         "apache2": {
             "cmd": "apache2 -v",
@@ -371,10 +312,10 @@ def collect_critical_software():
     for name, config in checks.items():
         raw_output = run_command(config["cmd"], ignore_errors=True)
         if raw_output:
-            # Extraer solo la primera línea
+            # Extraer solo la primera linea
             first_line = raw_output.split('\n')[0]
             
-            # Intentar extraer versión limpia con regex
+            # Intentar extraer version limpia con regex
             version = "unknown"
             if "regex" in config:
                 match = re.search(config["regex"], first_line)
@@ -383,60 +324,26 @@ def collect_critical_software():
             
             software.append({
                 "name": name,
-                "version": version,
-                "raw_output": first_line
+                "version": version
             })
     
     return software
 
-# ============ DETECCIÓN DE CAMBIOS ============
-
-def calculate_hash(data):
-    """
-    Calcula hash SHA256 del inventario (sin timestamp)
-    """
-    # Crear copia sin el timestamp para comparar contenido real
-    data_copy = json.loads(json.dumps(data))
-    if 'system' in data_copy and 'collected_at' in data_copy['system']:
-        del data_copy['system']['collected_at']
-    
-    # Serializar de forma determinista
-    json_str = json.dumps(data_copy, sort_keys=True)
-    return hashlib.sha256(json_str.encode()).hexdigest()
-
-def load_previous_hash():
-    """
-    Carga el hash del inventario anterior
-    """
-    hash_path = os.path.join(OUTPUT_DIR, HASH_FILE)
-    if os.path.exists(hash_path):
-        with open(hash_path, 'r') as f:
-            return f.read().strip()
-    return None
-
-def save_hash(hash_value):
-    """
-    Guarda el hash del inventario actual
-    """
-    hash_path = os.path.join(OUTPUT_DIR, HASH_FILE)
-    with open(hash_path, 'w') as f:
-        f.write(hash_value)
-
-# ============ ENVÍO A RSM ============
+# ============ ENVIO A RSM ============
 
 def send_to_rsm(inventory):
     """
-    Envía el inventario completo a RSM mediante curl
-    Retorna True si el envío fue exitoso, False en caso contrario
+    Envia el inventario completo a RSM mediante curl
+    Retorna True si el envio fue exitoso, False en caso contrario
     """
-    print("\n📤 Enviando inventario completo a RSM...")
+    print("\nEnviando inventario a RSM...")
     
     # Convertir inventario completo a JSON
     rsm_json = json.dumps(inventory, ensure_ascii=False, indent=2)
     
-    # 🔍 DEBUG 1: Información básica del inventario
-    print(f"\n🔍 DEBUG - Estructura del inventario:")
-    print(f"   • Total packages: {len(inventory.get('packages', []))}")
+    # Informacion basica del inventario
+    print(f"\nEstructura del inventario:")
+    print(f"   - Total packages: {len(inventory.get('packages', []))}")
     
     # Contar por tipo de manager
     packages = inventory.get('packages', [])
@@ -448,27 +355,24 @@ def send_to_rsm(inventory):
     print(f"     - Sistema (dpkg/rpm): {dpkg_count + rpm_count}")
     print(f"     - Python (pip): {pip_count}")
     print(f"     - Node.js (npm): {npm_count}")
-    print(f"   • Critical software: {len(inventory.get('critical_software', []))}")
+    print(f"   - Critical software: {len(inventory.get('critical_software', []))}")
     
-    # Mostrar software crítico detectado con versiones
+    # Mostrar software critico detectado con versiones
     critical_sw = inventory.get('critical_software', [])
     if critical_sw:
         print(f"     - Detectados:")
         for sw in critical_sw[:5]:  # Mostrar solo los primeros 5
-            print(f"       · {sw['name']}: {sw['version']}")
+            print(f"       - {sw['name']}: {sw['version']}")
         if len(critical_sw) > 5:
-            print(f"       · ... y {len(critical_sw) - 5} más")
+            print(f"       - ... y {len(critical_sw) - 5} mas")
     
-    # 🔍 DEBUG 2: Mostrar JSON (primeros 800 caracteres)
-    print(f"\n🔍 DEBUG - JSON generado (primeros 800 chars):")
-    print(f"   {rsm_json[:800]}...")
-    print(f"🔍 DEBUG - Longitud total del JSON: {len(rsm_json)} caracteres ({len(rsm_json)/1024:.2f} KB)")
+    print(f"\nLongitud total del JSON: {len(rsm_json)} caracteres ({len(rsm_json)/1024:.2f} KB)")
     
-    # 🔍 DEBUG 3: Guardar JSON completo en archivo temporal
+    # Guardar JSON completo en archivo temporal
     debug_json_path = "/tmp/rsm_debug_payload.json"
     with open(debug_json_path, 'w') as f:
         f.write(rsm_json)
-    print(f"🔍 DEBUG - JSON completo guardado en: {debug_json_path}")
+    print(f"JSON completo guardado en: {debug_json_path}")
     
     # Construir comando curl
     curl_cmd = [
@@ -482,15 +386,15 @@ def send_to_rsm(inventory):
         '--verbose'
     ]
     
-    # 🔍 DEBUG 4: Mostrar configuración
-    print(f"\n🔍 DEBUG - Configuración RSM:")
-    print(f"   • URL: {RSM_API_URL}")
-    print(f"   • Token: {RSM_TOKEN}")
-    print(f"   • Server ID: {SERVER_ID}")
-    print(f"   • Hostname: {inventory.get('system', {}).get('hostname', 'N/A')}")
+    # Configuracion RSM
+    print(f"\nConfiguracion RSM:")
+    print(f"   - URL: {RSM_API_URL}")
+    print(f"   - Token: {RSM_TOKEN}")
+    print(f"   - Server ID: {SERVER_ID}")
+    print(f"   - Hostname: {inventory.get('system', {}).get('hostname', 'N/A')}")
     
     try:
-        print(f"\n🔄 Ejecutando petición a RSM...")
+        print(f"\nEjecutando peticion a RSM...")
         
         # Ejecutar curl
         result = subprocess.run(
@@ -500,41 +404,40 @@ def send_to_rsm(inventory):
             timeout=35
         )
         
-        # 🔍 DEBUG 5: Mostrar respuesta completa
-        print(f"\n🔍 DEBUG - Código de salida: {result.returncode}")
+        # Mostrar respuesta completa
+        print(f"\nCodigo de salida: {result.returncode}")
         
         if result.stdout:
-            print(f"🔍 DEBUG - STDOUT del servidor:")
+            print(f"STDOUT del servidor:")
             print(f"   {result.stdout}")
         
         if result.stderr:
-            print(f"🔍 DEBUG - STDERR (info de curl):")
-            # Mostrar más del stderr porque tiene info útil
+            print(f"STDERR (info de curl):")
             stderr_lines = result.stderr.split('\n')
-            for line in stderr_lines[:30]:  # Primeras 30 líneas
+            for line in stderr_lines[:30]:
                 if line.strip():
                     print(f"   {line}")
         
         if result.returncode == 0:
-            print(f"\n✅ Inventario completo enviado correctamente ({len(rsm_json)/1024:.2f} KB)")
+            print(f"\nInventario enviado correctamente ({len(rsm_json)/1024:.2f} KB)")
             return True
         else:
-            print(f"\n❌ ERROR: Fallo al enviar inventario a RSM")
+            print(f"\nERROR: Fallo al enviar inventario a RSM")
             return False
             
     except subprocess.TimeoutExpired:
-        print("❌ ERROR: Timeout al enviar datos a RSM (>30s)")
+        print("ERROR: Timeout al enviar datos a RSM (>30s)")
         return False
     except Exception as e:
-        print(f"❌ ERROR: Excepción al enviar datos a RSM: {e}")
+        print(f"ERROR: Excepcion al enviar datos a RSM: {e}")
         import traceback
         traceback.print_exc()
         return False
 
-# ============ AUTO-ACTUALIZACIÓN ============
+# ============ AUTO-ACTUALIZACION ============
 
 def check_for_updates():
-    """Comprueba si hay nueva versión en GitHub Releases"""
+    """Comprueba si hay nueva version en GitHub Releases"""
     if not requests:
         return False  # Si no hay requests, no puede actualizar
     
@@ -545,7 +448,7 @@ def check_for_updates():
             latest_version = data['tag_name'].lstrip('v')  # Por si usa v0.1.0
             
             if latest_version > AGENT_VERSION:
-                print(f"🔄 Nueva versión disponible: {latest_version} (actual: {AGENT_VERSION})")
+                print(f"Nueva version disponible: {latest_version} (actual: {AGENT_VERSION})")
                 return download_update()
     except Exception as e:
         # Falla silenciosamente para no interrumpir el inventario
@@ -554,9 +457,9 @@ def check_for_updates():
     return False
 
 def download_update():
-    """Descarga e instala la nueva versión"""
+    """Descarga e instala la nueva version"""
     try:
-        print("📥 Descargando actualización...")
+        print("Descargando actualizacion...")
         response = requests.get(GITHUB_AGENT_URL, timeout=10)
         
         if response.status_code == 200:
@@ -567,12 +470,12 @@ def download_update():
             if os.path.exists(script_path):
                 os.rename(script_path, backup_path)
             
-            # Escribir nueva versión
+            # Escribir nueva version
             with open(script_path, 'w') as f:
                 f.write(response.text)
             os.chmod(script_path, 0o755)
             
-            print("✅ Actualización completada. Reiniciando agente...")
+            print("Actualizacion completada. Reiniciando agente...")
             
             # Re-ejecutar el script actualizado
             os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -580,7 +483,7 @@ def download_update():
         return True
         
     except Exception as e:
-        print(f"⚠️ Error actualizando: {e}")
+        print(f"Error actualizando: {e}")
         # Restaurar backup si existe
         if os.path.exists(backup_path):
             os.rename(backup_path, script_path)
@@ -593,7 +496,7 @@ def check_root():
     Verifica que el script se ejecute como root
     """
     if os.geteuid() != 0:
-        print("❌ ERROR: Este script requiere permisos de root")
+        print("ERROR: Este script requiere permisos de root")
         print("   Ejecuta con: sudo python3 rs_agent.py")
         sys.exit(1)
 
@@ -605,7 +508,7 @@ def ensure_output_dir():
 
 def main():
     print("\n" + "="*60)
-    print("🔍 Redsauce Inventory Agent - Recopilando información")
+    print("Redsauce Inventory Agent - Recopilando informacion")
     print("="*60 + "\n")
     
     # Verificar permisos
@@ -613,111 +516,88 @@ def main():
     
     # Comprobar actualizaciones (antes de recopilar inventario)
     if check_for_updates():
-        return  # Si se actualizó, el script se re-ejecuta automáticamente
+        return  # Si se actualizo, el script se re-ejecuta automaticamente
     
     # Crear directorio de salida
     ensure_output_dir()
     
-    # Recopilar información
+    # Recopilar informacion
     inventory = {}
     
-    print("📋 Recopilando información del sistema...")
+    print("Recopilando informacion del sistema...")
     inventory["system"] = collect_system_info()
     
-    print("🖥️ Recopilando información de hardware...")
-    inventory["hardware"] = collect_hardware()
-    
-    print("📦 Recopilando paquetes del sistema...")
+    print("Recopilando paquetes del sistema...")
     system_packages = collect_packages()
-    print(f"   → {len(system_packages)} paquetes del sistema")
+    print(f"   -> {len(system_packages)} paquetes del sistema")
     
-    print("🐍 Recopilando paquetes Python...")
+    print("Recopilando paquetes Python...")
     pip_packages = collect_pip_packages()
-    print(f"   → {len(pip_packages)} paquetes Python")
+    print(f"   -> {len(pip_packages)} paquetes Python")
     
-    print("🔗 Recopilando paquetes Node.js...")
+    print("Recopilando paquetes Node.js...")
     npm_packages = collect_npm_packages()
-    print(f"   → {len(npm_packages)} paquetes Node.js")
+    print(f"   -> {len(npm_packages)} paquetes Node.js")
     
-    # ✨ UNIFICAR TODOS LOS PAQUETES EN UN SOLO ARRAY
+    # Unificar todos los paquetes en un solo array
     all_packages = system_packages + pip_packages + npm_packages
     inventory["packages"] = all_packages
-    print(f"   ✅ Total unificado: {len(all_packages)} paquetes")
+    print(f"   Total unificado: {len(all_packages)} paquetes")
     
-    print("🔧 Detectando software crítico...")
+    print("Detectando software critico...")
     inventory["critical_software"] = collect_critical_software()
     critical_count = len(inventory['critical_software'])
-    print(f"   → {critical_count} aplicaciones detectadas")
+    print(f"   -> {critical_count} aplicaciones detectadas")
     
     # Mostrar algunas versiones detectadas
     if critical_count > 0:
         parsed_count = sum(1 for sw in inventory['critical_software'] if sw['version'] != 'unknown')
-        print(f"   → {parsed_count}/{critical_count} versiones parseadas correctamente")
-    
-    # Calcular hash del nuevo inventario
-    new_hash = calculate_hash(inventory)
-    previous_hash = load_previous_hash()
+        print(f"   -> {parsed_count}/{critical_count} versiones parseadas correctamente")
     
     output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
     
-    # Comparar con hash anterior
-    if previous_hash and new_hash == previous_hash:
-        print("\n" + "="*60)
-        print("✓ No hay cambios en el sistema")
-        print("="*60)
-        print(f"\n📄 Inventario actual: {output_path}")
-        print(f"🕐 Última actualización: {inventory['system']['collected_at']}")
-        print()
-        return
-    
-    # Hay cambios o es primera ejecución
-    print(f"\n💾 Guardando inventario en {output_path}...")
+    # Guardar inventario localmente
+    print(f"\nGuardando inventario en {output_path}...")
     
     with open(output_path, 'w') as f:
         json.dump(inventory, f, indent=2)
     
-    # Guardar nuevo hash
-    save_hash(new_hash)
-    
-    # Enviar datos a RSM (solo cuando hay cambios)
+    # Enviar datos a RSM (siempre, sin comprobar cambios)
     if not send_to_rsm(inventory):
         print("\n" + "="*60)
-        print("❌ ERROR CRÍTICO: No se pudo enviar el inventario a RSM")
+        print("ERROR CRITICO: No se pudo enviar el inventario a RSM")
         print("="*60)
-        print("\n⚠️ Verifica:")
-        print(f"   • Token RSM: {RSM_TOKEN}")
-        print(f"   • Server ID: {SERVER_ID}")
-        print(f"   • URL: {RSM_API_URL}")
-        print(f"   • Conectividad de red")
+        print("\nVerifica:")
+        print(f"   - Token RSM: {RSM_TOKEN}")
+        print(f"   - Server ID: {SERVER_ID}")
+        print(f"   - URL: {RSM_API_URL}")
+        print(f"   - Conectividad de red")
         print()
         sys.exit(1)
     
-    # Estadísticas finales
+    # Estadisticas finales
     total_packages = len(inventory['packages'])
     
     print("\n" + "="*60)
-    if previous_hash:
-        print("✅ Inventario actualizado (detectados cambios)")
-    else:
-        print("✅ Inventario creado (primera ejecución)")
+    print("Inventario recopilado y enviado correctamente")
     print("="*60)
-    print(f"\n📊 Resumen:")
-    print(f"   • Sistema: {inventory['system']['os']['name']} {inventory['system']['os']['version']}")
-    print(f"   • Hostname: {inventory['system']['hostname']}")
-    print(f"   • Total paquetes: {total_packages}")
-    print(f"   • Software crítico: {len(inventory['critical_software'])}")
-    print(f"   • Archivo: {output_path}")
-    print(f"   • Tamaño: {os.path.getsize(output_path) / 1024:.2f} KB")
+    print(f"\nResumen:")
+    print(f"   - Sistema: {inventory['system']['os']['name']} {inventory['system']['os']['version']}")
+    print(f"   - Hostname: {inventory['system']['hostname']}")
+    print(f"   - Total paquetes: {total_packages}")
+    print(f"   - Software critico: {len(inventory['critical_software'])}")
+    print(f"   - Archivo: {output_path}")
+    print(f"   - Tamano: {os.path.getsize(output_path) / 1024:.2f} KB")
     print()
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n⚠️ Proceso interrumpido por el usuario")
+        print("\n\nProceso interrumpido por el usuario")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Error inesperado: {e}")
+        print(f"\nError inesperado: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
