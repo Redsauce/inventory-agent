@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # Redsauce Inventory Agent - Instalador One-Liner
-# Version 0.2.0 - Optimizado para deteccion CVE
+# Version 0.2.3 - Optimizado para deteccion CVE (modelo de disco sin tamaño)
 # ============================================================================
 #
 # Uso:
@@ -55,7 +55,7 @@ warn() {
 banner() {
     echo ""
     echo "============================================================================"
-    echo "  Redsauce Inventory Agent - Instalador v0.2.0"
+    echo "  Redsauce Inventory Agent - Instalador v0.2.3"
     echo "  Optimizado para deteccion de vulnerabilidades CVE"
     echo "============================================================================"
     echo ""
@@ -251,6 +251,7 @@ print_summary() {
     echo "   - Envia inventario completo en cada ejecucion a RSM"
     echo "   - RSM detecta y gestiona los cambios"
     echo "   - Optimizado para deteccion de vulnerabilidades CVE"
+    echo "   - Incluye: OS, kernel, CPU, modelo de discos, paquetes, software critico"
     echo ""
     echo "Desinstalar:"
     echo "   sudo bash $INSTALL_DIR/uninstall.sh"

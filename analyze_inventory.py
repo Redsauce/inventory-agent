@@ -2,7 +2,7 @@
 """
 Herramienta de analisis de inventario - Redsauce Agent
 Muestra estadisticas y resumen del ultimo inventario recopilado
-Version: 0.2.1 - Enfocado en vulnerabilidades CVE
+Version: 0.2.3 - Enfocado en vulnerabilidades CVE (modelo de disco sin tamaño)
 """
 
 import json
@@ -53,8 +53,8 @@ def analyze_system(inventory):
             print(f"Recopilado:         {collected_at}")
 
 def analyze_hardware(inventory):
-    """Analiza informacion de hardware (CPU)"""
-    print_section("HARDWARE (CPU)")
+    """Analiza informacion de hardware (CPU y modelos de disco)"""
+    print_section("HARDWARE")
     
     hardware = inventory.get('hardware', {})
     
@@ -64,10 +64,20 @@ def analyze_hardware(inventory):
     
     # CPU Model
     cpu_model = hardware.get('cpu_model', 'N/A')
-    
     print(f"CPU Model:          {cpu_model}")
     
-    print(f"\nNOTA: Informacion de CPU relevante para vulnerabilidades como Spectre/Meltdown")
+    # Discos (solo modelo)
+    disks = hardware.get('disks', [])
+    print(f"\nDiscos:             {len(disks)} dispositivo(s)")
+    
+    if disks:
+        for disk in disks:
+            model = disk.get('model', 'Unknown')
+            device = disk.get('device', 'N/A')
+            print(f"  - {device:15s} {model}")
+    
+    print(f"\nNOTA: Informacion relevante para CVE de CPU (Spectre/Meltdown)")
+    print(f"      y vulnerabilidades de firmware de disco (Samsung, WD, etc.)")
 
 def analyze_packages(inventory):
     """Analiza paquetes instalados"""
@@ -150,12 +160,22 @@ def generate_summary(inventory):
     packages = len(inventory.get('packages', []))
     critical = len(inventory.get('critical_software', []))
     
-    # Info de CPU
+    # Info de hardware
     hardware = inventory.get('hardware', {})
     cpu_model = hardware.get('cpu_model', 'N/A')
+    disks = hardware.get('disks', [])
     
     print(f"Este sistema tiene:")
     print(f"  - CPU: {cpu_model}")
+    print(f"  - {len(disks)} disco(s) fisico(s)")
+    
+    # Mostrar modelos de discos
+    if disks:
+        disk_models = set(d.get('model', 'Unknown') for d in disks)
+        for model in disk_models:
+            if model != 'Unknown':
+                print(f"    * {model}")
+    
     print(f"  - {packages} paquetes instalados en total")
     print(f"  - {critical} aplicaciones criticas detectadas")
     
@@ -172,11 +192,11 @@ def generate_summary(inventory):
         pass
     
     print(f"\nNOTA: Este inventario esta optimizado para deteccion de vulnerabilidades CVE")
-    print(f"      Incluye: OS, kernel, CPU model, paquetes y versiones de software critico")
+    print(f"      Incluye: OS, kernel, CPU, modelo de discos, paquetes y software critico")
 
 def main():
     print("\n" + "="*70)
-    print("  Analisis de Inventario - Redsauce Agent v0.2.1")
+    print("  Analisis de Inventario - Redsauce Agent v0.2.3")
     print("="*70)
     
     # Cargar inventario
