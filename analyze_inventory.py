@@ -2,7 +2,7 @@
 """
 Herramienta de analisis de inventario - Redsauce Agent
 Muestra estadisticas y resumen del ultimo inventario recopilado
-Version: 0.2.0 - Enfocado en vulnerabilidades CVE
+Version: 0.2.1 - Enfocado en vulnerabilidades CVE
 """
 
 import json
@@ -41,6 +41,7 @@ def analyze_system(inventory):
     print(f"Distribucion:       {os_info.get('distro_id', 'N/A')}")
     print(f"Kernel:             {os_info.get('kernel', 'N/A')}")
     print(f"Arquitectura:       {os_info.get('architecture', 'N/A')}")
+    print(f"Python:             {system.get('python_version', 'N/A')}")
     print(f"Version del agente: {system.get('agent_version', 'N/A')}")
     
     collected_at = system.get('collected_at', 'N/A')
@@ -50,6 +51,23 @@ def analyze_system(inventory):
             print(f"Recopilado:         {dt.strftime('%d/%m/%Y %H:%M:%S')}")
         except:
             print(f"Recopilado:         {collected_at}")
+
+def analyze_hardware(inventory):
+    """Analiza informacion de hardware (CPU)"""
+    print_section("HARDWARE (CPU)")
+    
+    hardware = inventory.get('hardware', {})
+    
+    if not hardware:
+        print("No se encontro informacion de hardware")
+        return
+    
+    # CPU Model
+    cpu_model = hardware.get('cpu_model', 'N/A')
+    
+    print(f"CPU Model:          {cpu_model}")
+    
+    print(f"\nNOTA: Informacion de CPU relevante para vulnerabilidades como Spectre/Meltdown")
 
 def analyze_packages(inventory):
     """Analiza paquetes instalados"""
@@ -108,8 +126,22 @@ def analyze_critical_software(inventory):
         if found:
             print(f"{category}:")
             for sw in found:
-                print(f"  - {sw['name']:15s} -> {sw['version']}")
+                version_display = sw['version']
+                # Si tiene raw_output y es diferente a version, mostrar ambos
+                if 'raw_output' in sw and sw['version'] not in sw['raw_output']:
+                    version_display = f"{sw['version']} ({sw['raw_output'][:50]}...)" if len(sw['raw_output']) > 50 else f"{sw['version']} ({sw['raw_output']})"
+                print(f"  - {sw['name']:15s} -> {version_display}")
             print()
+    
+    # Mostrar todas las versiones no categorizadas
+    categorized_names = [name for names in categories.values() for name in names]
+    uncategorized = [sw for sw in software if sw['name'] not in categorized_names]
+    
+    if uncategorized:
+        print("Otros:")
+        for sw in uncategorized:
+            print(f"  - {sw['name']:15s} -> {sw['version']}")
+        print()
 
 def generate_summary(inventory):
     """Genera resumen ejecutivo"""
@@ -118,7 +150,12 @@ def generate_summary(inventory):
     packages = len(inventory.get('packages', []))
     critical = len(inventory.get('critical_software', []))
     
+    # Info de CPU
+    hardware = inventory.get('hardware', {})
+    cpu_model = hardware.get('cpu_model', 'N/A')
+    
     print(f"Este sistema tiene:")
+    print(f"  - CPU: {cpu_model}")
     print(f"  - {packages} paquetes instalados en total")
     print(f"  - {critical} aplicaciones criticas detectadas")
     
@@ -135,11 +172,11 @@ def generate_summary(inventory):
         pass
     
     print(f"\nNOTA: Este inventario esta optimizado para deteccion de vulnerabilidades CVE")
-    print(f"      No incluye informacion de hardware (discos, RAM, etc.)")
+    print(f"      Incluye: OS, kernel, CPU model, paquetes y versiones de software critico")
 
 def main():
     print("\n" + "="*70)
-    print("  Analisis de Inventario - Redsauce Agent v0.2.0")
+    print("  Analisis de Inventario - Redsauce Agent v0.2.1")
     print("="*70)
     
     # Cargar inventario
@@ -151,6 +188,7 @@ def main():
     
     # Analizar cada seccion
     analyze_system(inventory)
+    analyze_hardware(inventory)
     analyze_packages(inventory)
     analyze_critical_software(inventory)
     generate_summary(inventory)

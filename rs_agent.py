@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Redsauce Inventory Agent - Recopilador de inventario de sistemas Linux
-Version: 0.2.0
+Version: 0.2.1 (con CPU model y raw_output restaurados)
 Requiere: Permisos de root/sudo
 """
 
@@ -24,7 +24,7 @@ except ImportError:
 # ============ CONFIGURACION ============
 
 # Version actual del agente
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.2.1"
 
 # URLs de GitHub para auto-actualizacion
 GITHUB_API_URL = "https://api.github.com/repos/redsauce/inventory-agent/releases/latest"
@@ -121,7 +121,7 @@ def get_package_manager():
 
 def collect_system_info():
     """
-    Informacion basica del sistema (solo relevante para CVE)
+    Informacion basica del sistema (relevante para CVE)
     """
     distro = detect_distro()
     
@@ -136,9 +136,26 @@ def collect_system_info():
             "kernel": platform.release(),
             "architecture": platform.machine()
         },
+        "python_version": platform.python_version(),
         "collected_at": datetime.now().isoformat(),
         "agent_version": AGENT_VERSION
     }
+
+def collect_hardware():
+    """
+    Informacion de CPU (relevante para vulnerabilidades de CPU)
+    """
+    hardware = {}
+    
+    # CPU Model
+    cpu_info = run_command("lscpu")
+    if cpu_info:
+        for line in cpu_info.split('\n'):
+            if "Model name:" in line:
+                hardware["cpu_model"] = line.split(":", 1)[1].strip()
+                break
+    
+    return hardware
 
 def collect_packages_dpkg():
     """
@@ -241,7 +258,7 @@ def collect_npm_packages():
 def collect_critical_software():
     """
     Detecta versiones de software critico comun
-    Retorna array de objetos con estructura: {name, version}
+    Retorna array de objetos con estructura: {name, version, raw_output}
     """
     software = []
     
@@ -324,7 +341,8 @@ def collect_critical_software():
             
             software.append({
                 "name": name,
-                "version": version
+                "version": version,
+                "raw_output": first_line
             })
     
     return software
@@ -527,6 +545,9 @@ def main():
     print("Recopilando informacion del sistema...")
     inventory["system"] = collect_system_info()
     
+    print("Recopilando informacion de CPU...")
+    inventory["hardware"] = collect_hardware()
+    
     print("Recopilando paquetes del sistema...")
     system_packages = collect_packages()
     print(f"   -> {len(system_packages)} paquetes del sistema")
@@ -584,6 +605,7 @@ def main():
     print(f"\nResumen:")
     print(f"   - Sistema: {inventory['system']['os']['name']} {inventory['system']['os']['version']}")
     print(f"   - Hostname: {inventory['system']['hostname']}")
+    print(f"   - CPU: {inventory['hardware'].get('cpu_model', 'N/A')}")
     print(f"   - Total paquetes: {total_packages}")
     print(f"   - Software critico: {len(inventory['critical_software'])}")
     print(f"   - Archivo: {output_path}")
