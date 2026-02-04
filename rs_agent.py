@@ -137,7 +137,7 @@ def collect_system_info():
             "architecture": platform.machine()
         },
         "python_version": platform.python_version(),
-        "collected_at": datetime.now().isoformat(),
+        "collected_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "agent_version": AGENT_VERSION
     }
 
