@@ -370,7 +370,7 @@ def send_to_rsm(inventory):
     print("\nEnviando inventario a RSM...")
     
     # Convertir inventario completo a JSON
-    rsm_json = json.dumps(inventory, ensure_ascii=False, indent=2)
+    rsm_json = json.dumps(inventory, ensure_ascii=False)
     
     # Informacion basica del inventario
     print(f"\nEstructura del inventario:")
