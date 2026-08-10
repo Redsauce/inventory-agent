@@ -501,14 +501,6 @@ fi
 shift 2
 while [ $# -gt 0 ]; do
     case "$1" in
-        --alias)
-            if [ $# -lt 2 ]; then
-                echo "[ERROR] $(early_t alias_requires_value)"
-                exit 1
-            fi
-            # Backward-compatible no-op: aliases are now managed only from the UI.
-            shift 2
-            ;;
         --locale|--agent-locale)
             if [ $# -lt 2 ]; then
                 echo "[ERROR] $(early_t locale_requires_value)"
@@ -559,41 +551,6 @@ early_shell_single_quote() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
-early_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
-
-early_json_extract_first_string_key() {
-    local json="$1"
-    local key="$2"
-
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | sed 's/,"/\n"/g' \
-        | sed -n "s/^.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*$/\1/p" \
-        | head -1
-}
-
-early_json_extract_rsm_property() {
-    local json="$1"
-    local property_id="$2"
-    local value
-
-    value=$(early_json_extract_first_string_key "$json" "$property_id")
-    if [ -n "$value" ]; then
-        printf '%s' "$value"
-        return 0
-    fi
-
-    early_json_extract_first_string_key "$json" "${property_id}trs"
-}
-
 early_normalize_locale() {
     local value
     value=$(printf '%s' "${1:-}" | tr '[:upper:]-' '[:lower:]_')
@@ -609,23 +566,6 @@ early_normalize_locale() {
         zh*) printf '%s' "zh_CN" ;;
         *) printf '%s' "en_US" ;;
     esac
-}
-
-early_resolve_locale_from_rsm() {
-    local token="$1"
-    local payload response_body locale
-    local items_get_url="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/get.php"
-    local app_user_agent_token_property_id="1821"
-    local app_user_locale_property_id="1824"
-
-    [ -n "$token" ] || return 1
-    command -v curl >/dev/null 2>&1 || return 1
-
-    payload="{\"propertyIDs\":[\"$app_user_agent_token_property_id\",\"$app_user_locale_property_id\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$app_user_agent_token_property_id\",\"value\":\"$(early_json_escape "$token")\",\"operation\":\"=\"}]}"
-    response_body=$(curl --silent --show-error --location --request GET "$items_get_url" --header "Authorization: $token" --header "Content-Type: application/json" --data "$payload" --max-time 20 2>/dev/null) || return 1
-    locale=$(early_json_extract_rsm_property "$response_body" "$app_user_locale_property_id")
-    [ -n "$locale" ] || return 1
-    early_normalize_locale "$locale"
 }
 
 early_user_linger_enabled_for() {
@@ -921,9 +861,6 @@ choose_install_mode_if_root() {
     esac
 }
 
-if [ -z "$AGENT_LOCALE" ]; then
-    AGENT_LOCALE=$(early_resolve_locale_from_rsm "$AGENT_TOKEN" 2>/dev/null || true)
-fi
 AGENT_LOCALE=$(early_normalize_locale "$AGENT_LOCALE")
 
 choose_install_mode_if_root
@@ -954,19 +891,8 @@ CONFIG_FILE="$DATA_DIR/config.env"
 RUNNER_FILE="$INSTALL_DIR/rs_agent_runner.sh"
 SCHEDULER_TYPE=""
 
-# RSM System lookup
-RSM_ITEMS_GET_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/get.php"
-RSM_ITEMS_UPDATE_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/update.php"
-RSM_SYSTEM_HOSTNAME_PROPERTY_ID="1749"
-RSM_SYSTEM_FQDN_PROPERTY_ID="1750"
-RSM_SYSTEM_UUID_PROPERTY_ID="1780"
-RSM_SYSTEM_HOSTNAME_STATUS_PROPERTY_ID="1751"
-RSM_SYSTEM_HOSTNAME_STATUS_ACTIVE_VALUE="Activo"
-RSM_ACCOUNT_AGENT_TOKEN_PROPERTY_ID="1790"
-RSM_APP_USER_AGENT_TOKEN_PROPERTY_ID="1821"
-RSM_APP_USER_ACCOUNT_PROPERTY_ID="516"
-RSM_APP_USER_LOCALE_PROPERTY_ID="1824"
-RSM_SYSTEM_ITEM_ID=""
+# Semantic lifecycle endpoint shared with the Windows agent.
+RSM_API_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
 
 # ============================================================================
 # COLORES
@@ -1265,42 +1191,6 @@ validate_uuid_format() {
         error "'$uuid' $(t invalid_uuid_local)"
         exit 1
     fi
-}
-
-json_extract_first_string_key() {
-    local json="$1"
-    local key="$2"
-
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | sed 's/,"/\n"/g' \
-        | sed -n "s/^.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*$/\1/p" \
-        | head -1
-}
-
-json_extract_first_scalar_key() {
-    local json="$1"
-    local key="$2"
-
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | sed "s/\"$key\"[[:space:]]*:/\\n&/g" \
-        | sed -n "s/^\"$key\"[[:space:]]*:[[:space:]]*\"\\{0,1\\}\\([^\",}]*\\).*$/\\1/p" \
-        | head -1
-}
-
-json_extract_rsm_property() {
-    local json="$1"
-    local property_id="$2"
-    local value
-
-    value=$(json_extract_first_string_key "$json" "$property_id")
-    if [ -n "$value" ]; then
-        printf '%s' "$value"
-        return 0
-    fi
-
-    json_extract_first_string_key "$json" "${property_id}trs"
 }
 
 normalize_locale() {
@@ -2859,41 +2749,7 @@ t() {
     esac
 }
 
-resolve_locale_from_rsm() {
-    local token="$1"
-    local payload response_body account_id locale
-
-    [ -n "$token" ] || return 1
-    command -v curl >/dev/null 2>&1 || return 1
-
-    payload="{\"propertyIDs\":[\"$RSM_APP_USER_AGENT_TOKEN_PROPERTY_ID\",\"$RSM_APP_USER_LOCALE_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_APP_USER_AGENT_TOKEN_PROPERTY_ID\",\"value\":\"$(json_escape "$token")\",\"operation\":\"=\"}]}"
-    response_body=$(curl --silent --show-error --location --request GET "$RSM_ITEMS_GET_URL" --header "Authorization: $token" --header "Content-Type: application/json" --data "$payload" --max-time 20 2>/dev/null) || response_body=""
-    locale=$(json_extract_rsm_property "$response_body" "$RSM_APP_USER_LOCALE_PROPERTY_ID")
-    if [ -n "$locale" ]; then
-        normalize_locale "$locale"
-        return 0
-    fi
-
-    payload="{\"propertyIDs\":[\"$RSM_ACCOUNT_AGENT_TOKEN_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_ACCOUNT_AGENT_TOKEN_PROPERTY_ID\",\"value\":\"$(json_escape "$token")\",\"operation\":\"=\"}]}"
-    response_body=$(curl --silent --show-error --location --request GET "$RSM_ITEMS_GET_URL" --header "Authorization: $token" --header "Content-Type: application/json" --data "$payload" --max-time 20 2>/dev/null) || return 1
-    account_id=$(json_extract_first_scalar_key "$response_body" "ID")
-    [ -z "$account_id" ] && account_id=$(json_extract_first_scalar_key "$response_body" "id")
-    [ -n "$account_id" ] || return 1
-
-    payload="{\"propertyIDs\":[\"$RSM_APP_USER_ACCOUNT_PROPERTY_ID\",\"$RSM_APP_USER_LOCALE_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_APP_USER_ACCOUNT_PROPERTY_ID\",\"value\":\"$(json_escape "$account_id")\",\"operation\":\"=\"}]}"
-    response_body=$(curl --silent --show-error --location --request GET "$RSM_ITEMS_GET_URL" --header "Authorization: $token" --header "Content-Type: application/json" --data "$payload" --max-time 20 2>/dev/null) || return 1
-    locale=$(json_extract_rsm_property "$response_body" "$RSM_APP_USER_LOCALE_PROPERTY_ID")
-    [ -n "$locale" ] || return 1
-    normalize_locale "$locale"
-}
-
 resolve_agent_locale() {
-    if [ -n "$AGENT_LOCALE" ]; then
-        AGENT_LOCALE=$(normalize_locale "$AGENT_LOCALE")
-        return 0
-    fi
-
-    AGENT_LOCALE=$(resolve_locale_from_rsm "$AGENT_TOKEN" 2>/dev/null || true)
     AGENT_LOCALE=$(normalize_locale "$AGENT_LOCALE")
 }
 
@@ -2905,27 +2761,10 @@ local_system_fqdn() {
     hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unknown"
 }
 
-identity_matches_local_system() {
-    local existing_hostname="$1"
-    local existing_fqdn="$2"
-    local current_hostname
-    local current_fqdn
-
-    current_hostname=$(local_system_hostname)
-    current_fqdn=$(local_system_fqdn)
-
-    [ -n "$existing_hostname" ] && [ "$existing_hostname" = "$current_hostname" ] && return 0
-    [ -n "$existing_fqdn" ] && [ "$existing_fqdn" = "$current_fqdn" ] && return 0
-    [ -n "$existing_hostname" ] && [ "$existing_hostname" = "$current_fqdn" ] && return 0
-    [ -n "$existing_fqdn" ] && [ "$existing_fqdn" = "$current_hostname" ] && return 0
-
-    return 1
-}
-
 check_uuid_available() {
-    local payload response_file http_code exit_code response_body
-    response_file=$(make_private_temp_file "rsm_install_uuid_check_response")
-    payload="{\"propertyIDs\":[\"$RSM_SYSTEM_HOSTNAME_PROPERTY_ID\",\"$RSM_SYSTEM_FQDN_PROPERTY_ID\",\"$RSM_SYSTEM_UUID_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_SYSTEM_UUID_PROPERTY_ID\",\"value\":\"$UUID\",\"operation\":\"=\"}]}"
+    local payload response_file http_code exit_code
+    response_file=$(make_private_temp_file "rsm_install_uuid_check_response") || return 0
+    payload="{\"uuid\":\"$(json_escape "$UUID")\",\"hostname\":\"$(json_escape "$(local_system_hostname)")\",\"fqdn\":\"$(json_escape "$(local_system_fqdn)")\",\"locale\":\"$(json_escape "$AGENT_LOCALE")\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
 
     info "$(t validating_uuid)"
 
@@ -2936,64 +2775,28 @@ check_uuid_available() {
         --output "$response_file" \
         --write-out '%{http_code}' \
         --location \
-        --request GET \
-        "$RSM_ITEMS_GET_URL" \
+        --request POST \
+        "$RSM_API_URL" \
         --header "Authorization: $AGENT_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$payload" \
+        --form-string "RStrigger=validateSystemInstallation" \
+        --form-string "RSdata=$payload" \
+        --form-string "RStoken=$AGENT_TOKEN" \
         --max-time 20)
     exit_code=$?
     set -e
-    response_body=$(cat "$response_file" 2>/dev/null || true)
     rm -f "$response_file"
 
     if [ "$exit_code" -ne 0 ]; then
-        error "$(t uuid_validate_failed) (curl exit: $exit_code)."
-        error "$(t uuid_validate_safety)"
-        exit 1
+        warn "$(t uuid_validate_failed) (curl exit: $exit_code)."
+        return 0
     fi
 
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-        error "$(t uuid_validate_denied) (HTTP $http_code)."
-        error "$(t uuid_validate_safety)"
-        echo "$(t response): $response_body"
-        exit 1
-    fi
-
-    if ! printf '%s' "$response_body" | grep -Fq "$UUID"; then
-        error "$(t invalid_uuid_rsm)"
-        error "$(t uuid_not_generated)"
-        echo ""
-        echo "UUID: $UUID"
-        exit 1
-    fi
-
-    RSM_SYSTEM_ITEM_ID=$(json_extract_first_scalar_key "$response_body" "ID")
-    [ -z "$RSM_SYSTEM_ITEM_ID" ] && RSM_SYSTEM_ITEM_ID=$(json_extract_first_scalar_key "$response_body" "id")
-    if [ -z "$RSM_SYSTEM_ITEM_ID" ]; then
-        error "$(t rsm_item_missing)"
-        error "$(t rsm_status_safety)"
-        exit 1
-    fi
-
-    local existing_hostname existing_fqdn
-    existing_hostname=$(json_extract_rsm_property "$response_body" "$RSM_SYSTEM_HOSTNAME_PROPERTY_ID")
-    existing_fqdn=$(json_extract_rsm_property "$response_body" "$RSM_SYSTEM_FQDN_PROPERTY_ID")
-
-    if [ -z "$existing_hostname" ] && [ -z "$existing_fqdn" ]; then
-        log "$(t uuid_reserved)"
+        warn "$(t uuid_validate_denied) (HTTP $http_code)."
         return 0
     fi
 
-    if identity_matches_local_system "$existing_hostname" "$existing_fqdn"; then
-        log "$(t uuid_same_system)"
-        return 0
-    fi
-
-    echo ""
-    error "$(t uuid_other_system)"
-    error "$(t uuid_other_system_local)"
-    exit 1
+    return 0
 }
 
 check_existing_installation() {
@@ -3049,14 +2852,11 @@ check_local_agent_installation() {
 
 update_rsm_system_on_install() {
     local payload response_file http_code exit_code response_body
-
-    if [ -z "$RSM_SYSTEM_ITEM_ID" ]; then
-        error "$(t update_rsm_missing_uuid)"
+    response_file=$(make_private_temp_file "rsm_install_system_update_response") || {
+        error "$(t activate_failed)"
         exit 1
-    fi
-
-    response_file=$(make_private_temp_file "rsm_install_system_update_response")
-    payload="[{\"ID\":\"$RSM_SYSTEM_ITEM_ID\",\"$RSM_SYSTEM_HOSTNAME_STATUS_PROPERTY_ID\":\"$RSM_SYSTEM_HOSTNAME_STATUS_ACTIVE_VALUE\"}]"
+    }
+    payload="{\"uuid\":\"$(json_escape "$UUID")\",\"action\":\"activate\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
 
     info "$(t marking_active)"
 
@@ -3067,11 +2867,12 @@ update_rsm_system_on_install() {
         --output "$response_file" \
         --write-out '%{http_code}' \
         --location \
-        --request PATCH \
-        "$RSM_ITEMS_UPDATE_URL" \
+        --request POST \
+        "$RSM_API_URL" \
         --header "Authorization: $AGENT_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$payload" \
+        --form-string "RStrigger=changeSystemStatus" \
+        --form-string "RSdata=$payload" \
+        --form-string "RStoken=$AGENT_TOKEN" \
         --max-time 20)
     exit_code=$?
     set -e
@@ -3085,6 +2886,13 @@ update_rsm_system_on_install() {
 
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
         error "$(t activation_denied) (HTTP $http_code)."
+        echo "$(t response): $response_body"
+        exit 1
+    fi
+
+    if [ -n "$(printf '%s' "$response_body" | tr -d '[:space:]')" ] && \
+       ! printf '%s' "$response_body" | grep -Eq '"updated"[[:space:]]*:[[:space:]]*true'; then
+        error "$(t activate_failed)"
         echo "$(t response): $response_body"
         exit 1
     fi

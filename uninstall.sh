@@ -30,11 +30,7 @@ else
 fi
 
 CONFIG_FILE="$DATA_DIR/config.env"
-RSM_ITEMS_GET_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/get.php"
-RSM_ITEMS_UPDATE_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/update.php"
-RSM_SYSTEM_UUID_PROPERTY_ID="1780"
-RSM_SYSTEM_HOSTNAME_STATUS_PROPERTY_ID="1751"
-RSM_SYSTEM_HOSTNAME_STATUS_DISCONNECTED_VALUE="Disconnected"
+RSM_API_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
 AGENT_TOKEN=""
 UUID_VAL=""
 AGENT_LOCALE="${RS_AGENT_LOCALE:-}"
@@ -466,23 +462,22 @@ make_private_temp_file() {
     mktemp "$PRIVATE_TMP_DIR/${prefix}.XXXXXX"
 }
 
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
 validate_uuid() {
     local uuid="$1"
     if [[ ! "$uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
         error "'$uuid' $(t invalid_uuid)"
         exit 1
     fi
-}
-
-json_extract_first_scalar_key() {
-    local json="$1"
-    local key="$2"
-
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | sed "s/\"$key\"[[:space:]]*:/\\n&/g" \
-        | sed -n "s/^\"$key\"[[:space:]]*:[[:space:]]*\"\\{0,1\\}\\([^\",}]*\\).*$/\\1/p" \
-        | head -1
 }
 
 load_config() {
@@ -540,60 +535,12 @@ confirm_uninstall() {
     esac
 }
 
-find_system_id_by_uuid() {
-    local payload response_file http_code exit_code response_body system_id
-    response_file=$(make_private_temp_file "rsm_uninstall_uuid_lookup") || return 1
-    payload="{\"propertyIDs\":[\"$RSM_SYSTEM_UUID_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_SYSTEM_UUID_PROPERTY_ID\",\"value\":\"$UUID_VAL\",\"operation\":\"=\"}]}"
-
-    http_code=$(curl \
-        --silent \
-        --show-error \
-        --output "$response_file" \
-        --write-out '%{http_code}' \
-        --location "$RSM_ITEMS_GET_URL" \
-        --request GET \
-        --header "Authorization: $AGENT_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$payload" \
-        --max-time 20)
-    exit_code=$?
-    response_body=$(cat "$response_file" 2>/dev/null || true)
-    rm -f "$response_file"
-
-    if [ "$exit_code" -ne 0 ]; then
-        error "$(t query_failed) (curl exit: $exit_code)"
-        return 1
-    fi
-
-    if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-        error "$(t query_denied) (HTTP $http_code)"
-        echo "$(t response): $response_body"
-        return 1
-    fi
-
-    if ! printf '%s' "$response_body" | grep -Fq "$UUID_VAL"; then
-        printf ''
-        return 0
-    fi
-
-    system_id=$(json_extract_first_scalar_key "$response_body" "ID")
-    [ -z "$system_id" ] && system_id=$(json_extract_first_scalar_key "$response_body" "id")
-    printf '%s' "$system_id"
-}
-
 mark_system_disconnected_in_rsm() {
-    local system_id payload response_file http_code exit_code response_body
+    local payload response_file http_code exit_code response_body
 
     info "$(t marking_inactive)"
-    system_id=$(find_system_id_by_uuid) || return 1
-
-    if [ -z "$system_id" ]; then
-        info "$(t no_system)"
-        return 0
-    fi
-
     response_file=$(make_private_temp_file "rsm_uninstall_status_update") || return 1
-    payload="[{\"ID\":\"$system_id\",\"$RSM_SYSTEM_HOSTNAME_STATUS_PROPERTY_ID\":\"$RSM_SYSTEM_HOSTNAME_STATUS_DISCONNECTED_VALUE\"}]"
+    payload="{\"uuid\":\"$(json_escape "$UUID_VAL")\",\"action\":\"disconnect\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
 
     http_code=$(curl \
         --silent \
@@ -601,11 +548,12 @@ mark_system_disconnected_in_rsm() {
         --output "$response_file" \
         --write-out '%{http_code}' \
         --location \
-        --request PATCH \
-        "$RSM_ITEMS_UPDATE_URL" \
+        --request POST \
+        "$RSM_API_URL" \
         --header "Authorization: $AGENT_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$payload" \
+        --form-string "RStrigger=changeSystemStatus" \
+        --form-string "RSdata=$payload" \
+        --form-string "RStoken=$AGENT_TOKEN" \
         --max-time 20)
     exit_code=$?
     response_body=$(cat "$response_file" 2>/dev/null || true)
@@ -618,6 +566,24 @@ mark_system_disconnected_in_rsm() {
 
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
         error "$(t mark_denied) (HTTP $http_code)"
+        echo "$(t response): $response_body"
+        return 1
+    fi
+
+    if [ -z "$(printf '%s' "$response_body" | tr -d '[:space:]')" ]; then
+        log "$(t marked)"
+        return 0
+    fi
+
+    if printf '%s' "$response_body" | grep -Eq '"systemFound"[[:space:]]*:[[:space:]]*false' && \
+       printf '%s' "$response_body" | grep -Eq '"disconnected"[[:space:]]*:[[:space:]]*false'; then
+        info "$(t no_system)"
+        return 0
+    fi
+
+    if ! printf '%s' "$response_body" | grep -Eq '"systemFound"[[:space:]]*:[[:space:]]*true' || \
+       ! printf '%s' "$response_body" | grep -Eq '"disconnected"[[:space:]]*:[[:space:]]*true'; then
+        error "$(t mark_failed)"
         echo "$(t response): $response_body"
         return 1
     fi

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Firulai Inventory Agent
-# Version: 0.3.4 - Persistent state and missed execution recovery
+# Version: 0.4.0 - Semantic lifecycle events
 # Requires: bash 4+, curl, lscpu, lsblk, uname
 #
 
@@ -10,7 +10,7 @@ set -uo pipefail
 
 # ============ CONFIGURATION ============
 
-AGENT_VERSION="0.3.4"
+AGENT_VERSION="0.4.0"
 GITHUB_API_URL="https://api.github.com/repos/Redsauce/firulai-linux-agent/releases/latest"
 GITHUB_AGENT_URL="${RS_AGENT_GITHUB_AGENT_URL:-https://raw.githubusercontent.com/Redsauce/firulai-linux-agent/main/rs_agent.sh}"
 
@@ -34,10 +34,6 @@ fi
 OUTPUT_FILE="inventory.json"
 STATE_FILE="$OUTPUT_DIR/state.env"
 RSM_API_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/api.php"
-RSM_ITEMS_GET_URL="https://rsm1.redsauce.net/AppController/commands_RSM/api/v2/items/get.php"
-RSM_SYSTEM_HOSTNAME_PROPERTY_ID="1749"
-RSM_SYSTEM_FQDN_PROPERTY_ID="1750"
-RSM_SYSTEM_UUID_PROPERTY_ID="1780"
 AGENT_TOKEN=""
 UUID_VAL=""
 EXECUTION_TRIGGER="${RS_AGENT_TRIGGER:-manual}"
@@ -1077,31 +1073,6 @@ json_escape() {
     printf '%s' "$s"
 }
 
-json_extract_first_string_key() {
-    local json="$1"
-    local key="$2"
-
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | sed 's/,"/\n"/g' \
-        | sed -n "s/^.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*$/\1/p" \
-        | head -1
-}
-
-json_extract_rsm_property() {
-    local json="$1"
-    local property_id="$2"
-    local value
-
-    value=$(json_extract_first_string_key "$json" "$property_id")
-    if [ -n "$value" ]; then
-        printf '%s' "$value"
-        return 0
-    fi
-
-    json_extract_first_string_key "$json" "${property_id}trs"
-}
-
 # ============ VALIDATION AND ARGUMENTS ============
 
 check_root() {
@@ -1136,11 +1107,6 @@ parse_args() {
                 UUID_VAL="$2"
                 shift 2
                 ;;
-            --alias)
-                [ $# -ge 2 ] || { echo "$(t alias_requires_value)"; exit 1; }
-                # Backward-compatible no-op: aliases are now managed only from the UI.
-                shift 2
-                ;;
             --locale|--agent-locale)
                 [ $# -ge 2 ] || { echo "$(t locale_requires_value)"; exit 1; }
                 AGENT_LOCALE="$2"
@@ -1157,94 +1123,6 @@ parse_args() {
     fi
 
     validate_uuid "$UUID_VAL"
-}
-
-local_system_hostname() {
-    hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown"
-}
-
-local_system_fqdn() {
-    hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unknown"
-}
-
-identity_matches_local_system() {
-    local existing_hostname="$1"
-    local existing_fqdn="$2"
-    local current_hostname
-    local current_fqdn
-
-    current_hostname=$(local_system_hostname)
-    current_fqdn=$(local_system_fqdn)
-
-    [ -n "$existing_hostname" ] && [ "$existing_hostname" = "$current_hostname" ] && return 0
-    [ -n "$existing_fqdn" ] && [ "$existing_fqdn" = "$current_fqdn" ] && return 0
-    [ -n "$existing_hostname" ] && [ "$existing_hostname" = "$current_fqdn" ] && return 0
-    [ -n "$existing_fqdn" ] && [ "$existing_fqdn" = "$current_hostname" ] && return 0
-
-    return 1
-}
-
-validate_uuid_ownership() {
-    local payload response_file http_code exit_code response_body
-    response_file=$(make_private_temp_file "rsm_uuid_check_response") || return 1
-    payload="{\"propertyIDs\":[\"$RSM_SYSTEM_HOSTNAME_PROPERTY_ID\",\"$RSM_SYSTEM_FQDN_PROPERTY_ID\",\"$RSM_SYSTEM_UUID_PROPERTY_ID\"],\"translateIDs\":true,\"filterRules\":[{\"propertyID\":\"$RSM_SYSTEM_UUID_PROPERTY_ID\",\"value\":\"$UUID_VAL\",\"operation\":\"=\"}]}"
-
-    echo "$(t validating_uuid)"
-
-    http_code=$(curl \
-        --silent \
-        --show-error \
-        --output "$response_file" \
-        --write-out '%{http_code}' \
-        --location "$RSM_ITEMS_GET_URL" \
-        --request GET \
-        --header "Authorization: $AGENT_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "$payload" \
-        --max-time 20)
-    exit_code=$?
-    response_body=$(cat "$response_file" 2>/dev/null || true)
-    rm -f "$response_file"
-
-    if [ "$exit_code" -ne 0 ]; then
-        echo "$(t uuid_validate_failed) (curl exit: $exit_code)."
-        echo "$(t uuid_validate_safety)"
-        return 1
-    fi
-
-    if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-        echo "$(t uuid_validate_denied) (HTTP $http_code)."
-        echo "$(t uuid_validate_safety)"
-        echo "$(t response): $response_body"
-        return 1
-    fi
-
-    if ! printf '%s' "$response_body" | grep -Fq "$UUID_VAL"; then
-        echo "$(t invalid_uuid_rsm)"
-        echo "$(t uuid_not_generated)"
-        echo ""
-        echo "UUID: $UUID_VAL"
-        return 1
-    fi
-
-    local existing_hostname existing_fqdn
-    existing_hostname=$(json_extract_rsm_property "$response_body" "$RSM_SYSTEM_HOSTNAME_PROPERTY_ID")
-    existing_fqdn=$(json_extract_rsm_property "$response_body" "$RSM_SYSTEM_FQDN_PROPERTY_ID")
-
-    if [ -z "$existing_hostname" ] && [ -z "$existing_fqdn" ]; then
-        echo "   -> $(t uuid_reserved)"
-        return 0
-    fi
-
-    if identity_matches_local_system "$existing_hostname" "$existing_fqdn"; then
-        echo "   -> $(t uuid_same_system)"
-        return 0
-    fi
-
-    echo ""
-    echo "$(t uuid_other_system)"
-    echo "$(t uuid_other_system_local)"
-    return 1
 }
 
 # ============ COLLECTORS ============
@@ -1680,9 +1558,6 @@ main() {
     fi
     echo "$(t trigger): $EXECUTION_TRIGGER"
     check_for_updates
-    if ! validate_uuid_ownership; then
-        exit 1
-    fi
     if ! ensure_private_directory "$OUTPUT_DIR"; then
         exit 1
     fi
@@ -1747,7 +1622,7 @@ main() {
 
     # --- Build Final JSON ---
     local inventory_json
-    inventory_json="{\"RSToken\":\"$(json_escape "$AGENT_TOKEN")\",\"system\":${system_json},\"hardware\":${hardware_json},\"components\":[${all_components_json}],\"packages\":[${source_packages_json}]}"
+    inventory_json="{\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\",\"system\":${system_json},\"hardware\":${hardware_json},\"components\":[${all_components_json}],\"packages\":[${source_packages_json}]}"
 
     # --- Save Locally ---
     local output_path="${OUTPUT_DIR}/${OUTPUT_FILE}"
