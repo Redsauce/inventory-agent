@@ -14,13 +14,13 @@ If the installer is run as a regular user, it installs only for that user. If it
 
 ## Language
 
-The installer accepts the locale selected by the user in Firulai/RSM App user preferences:
+The installer accepts the locale selected by the Firulai interface:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Redsauce/firulai-linux-agent/main/install.sh | bash -s -- <AGENT_TOKEN> <UUID> --locale <LOCALE>
 ```
 
-If `--locale` is not provided, the installer tries to resolve it from RSM using the provided token. The selected locale is stored in `config.env` as `AGENT_LOCALE` and is reused by:
+If `--locale` is not provided, the installer uses English. It does not query AppUser or Account properties. The selected locale is stored in `config.env` as `AGENT_LOCALE` and is reused by:
 
 - `install.sh`
 - `rs_agent.sh`
@@ -35,6 +35,17 @@ All user-facing messages in the Linux installer, agent run, automatic runner, an
 python3 scripts/check_i18n.py
 bash -n install.sh rs_agent.sh rs_agent_runner.sh uninstall.sh
 ```
+
+## Semantic Lifecycle
+
+Linux uses the same receiver events as the Windows agent:
+
+- `validateSystemInstallation` receives UUID, hostname, FQDN, locale and the agent token during installation. Validation is advisory.
+- `changeSystemStatus` receives UUID and `action=activate` during installation.
+- `changeSystemStatus` receives UUID and `action=disconnect` during uninstall.
+- `newServerData` receives the initial and recurring semantic inventory.
+
+The Linux scripts contain no RSM property identifiers and do not call the item get/update endpoints directly. RSM mappings and stored status values belong to the receiver scripts.
 
 ## No-Root Paths
 
