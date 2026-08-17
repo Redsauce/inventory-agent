@@ -40,7 +40,13 @@ bash -n install.sh rs_agent.sh rs_agent_runner.sh uninstall.sh
 
 Linux uses the same receiver events as the Windows agent:
 
-- `validateSystemInstallation` receives UUID, hostname, FQDN, locale and the agent token during installation. Validation is advisory.
+- `validateSystemInstallation` receives UUID, hostname, FQDN, locale and the
+  Agent Token during installation. `available` and `same_system` continue;
+  `not_found` continues silently, while `different_system` stops installation
+  before local state is created when the result is available synchronously.
+  Events are normally asynchronous, so Vulnwatcher owns the final decision and
+  blocks inventory writes. It resolves System Client relation `1785`, then
+  queries Account Details by Client `1883` and reads email property `1881`.
 - `changeSystemStatus` receives UUID and `action=activate` during installation.
 - `changeSystemStatus` receives UUID and `action=disconnect` during uninstall.
 - `newServerData` receives the initial and recurring semantic inventory.

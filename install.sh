@@ -18,6 +18,7 @@ AGENT_TOKEN=${1:-""}
 UUID=${2:-""}
 SCHEDULER_CHOICE="${RS_AGENT_SCHEDULER:-}"
 AGENT_LOCALE="${RS_AGENT_LOCALE:-}"
+UUID_VALIDATION_RESULT=""
 
 early_locale_prefix() {
     local value
@@ -2762,7 +2763,7 @@ local_system_fqdn() {
 }
 
 check_uuid_available() {
-    local payload response_file http_code exit_code
+    local payload response_file http_code exit_code response_body validation_result
     response_file=$(make_private_temp_file "rsm_install_uuid_check_response") || return 0
     payload="{\"uuid\":\"$(json_escape "$UUID")\",\"hostname\":\"$(json_escape "$(local_system_hostname)")\",\"fqdn\":\"$(json_escape "$(local_system_fqdn)")\",\"locale\":\"$(json_escape "$AGENT_LOCALE")\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
 
@@ -2784,6 +2785,7 @@ check_uuid_available() {
         --max-time 20)
     exit_code=$?
     set -e
+    response_body=$(cat "$response_file" 2>/dev/null || true)
     rm -f "$response_file"
 
     if [ "$exit_code" -ne 0 ]; then
@@ -2795,6 +2797,30 @@ check_uuid_available() {
         warn "$(t uuid_validate_denied) (HTTP $http_code)."
         return 0
     fi
+
+    validation_result=$(printf '%s' "$response_body" | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    UUID_VALIDATION_RESULT="$validation_result"
+    case "$validation_result" in
+        available|same_system)
+            return 0
+            ;;
+        not_found)
+            return 0
+            ;;
+        different_system)
+            error "$(t uuid_other_system)"
+            error "$(t uuid_other_system_local)"
+            exit 1
+            ;;
+        "")
+            # Events are asynchronous; Vulnwatcher owns the final decision.
+            return 0
+            ;;
+        *)
+            error "$(t uuid_validate_denied): $validation_result"
+            exit 1
+            ;;
+    esac
 
     return 0
 }
@@ -2852,6 +2878,13 @@ check_local_agent_installation() {
 
 update_rsm_system_on_install() {
     local payload response_file http_code exit_code response_body
+
+    # A UUID unknown to RSM is deliberately ignored: do not follow the silent
+    # validation result with an activation request that would report an error.
+    if [ "$UUID_VALIDATION_RESULT" = "not_found" ] || [ -z "$UUID_VALIDATION_RESULT" ]; then
+        return 0
+    fi
+
     response_file=$(make_private_temp_file "rsm_install_system_update_response") || {
         error "$(t activate_failed)"
         exit 1
