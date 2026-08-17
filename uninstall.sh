@@ -536,11 +536,13 @@ confirm_uninstall() {
 }
 
 mark_system_disconnected_in_rsm() {
-    local payload response_file http_code exit_code response_body
+    local payload response_file http_code exit_code response_body local_hostname local_fqdn
 
     info "$(t marking_inactive)"
     response_file=$(make_private_temp_file "rsm_uninstall_status_update") || return 1
-    payload="{\"uuid\":\"$(json_escape "$UUID_VAL")\",\"action\":\"disconnect\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
+    local_hostname=$(hostname 2>/dev/null || true)
+    local_fqdn=$(hostname -f 2>/dev/null || printf '%s' "$local_hostname")
+    payload="{\"uuid\":\"$(json_escape "$UUID_VAL")\",\"action\":\"disconnect\",\"hostname\":\"$(json_escape "$local_hostname")\",\"fqdn\":\"$(json_escape "$local_fqdn")\",\"RStoken\":\"$(json_escape "$AGENT_TOKEN")\"}"
 
     http_code=$(curl \
         --silent \

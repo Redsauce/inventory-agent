@@ -48,7 +48,8 @@ Linux uses the same receiver events as the Windows agent:
   blocks inventory writes. It resolves System Client relation `1785`, then
   queries Account Details by Client `1883` and reads email property `1881`.
 - `changeSystemStatus` receives UUID and `action=activate` during installation.
-- `changeSystemStatus` receives UUID and `action=disconnect` during uninstall.
+- `changeSystemStatus` receives UUID, hostname, FQDN and `action=disconnect`
+  during uninstall. RSM is updated only when that identity matches the System.
 - `newServerData` receives the initial and recurring semantic inventory.
 
 The Linux scripts contain no RSM property identifiers and do not call the item get/update endpoints directly. RSM mappings and stored status values belong to the receiver scripts.
