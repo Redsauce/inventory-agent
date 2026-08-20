@@ -123,9 +123,26 @@ The no-root uninstaller only removes the current user's installation. It does no
 The agent generates a JSON inventory with:
 
 - `system`: hostname, FQDN, UUID, distribution, kernel, architecture, timezone, and agent version.
-- `hardware`: CPU model and visible disks through `lscpu` and `lsblk`.
-- `components`: `dpkg`, `rpm`, `pip`, and `npm` components when available to the user.
+- `hardware`: CPU model and visible disks through `lscpu`/`lsblk`, with `/proc/cpuinfo` and `/sys/block` fallbacks for minimal distributions.
+- `components`: system packages from the detected package collector plus `pip`, `npm`, `snap`, `flatpak`, and `gem` components when available to the user.
 - `packages`: source packages derived from `dpkg-query` on Debian/Ubuntu.
+
+The Linux installer and runtime are distribution-neutral. The agent selects a package collector from the tools and package databases available on the host, not from the distribution name:
+
+| Collector | Typical systems |
+| --- | --- |
+| `dpkg` | Debian, Ubuntu, Proxmox, Kali |
+| `rpm` | RHEL, Rocky, AlmaLinux, Fedora, openSUSE/SLES |
+| `pacman` | Arch, Manjaro, EndeavourOS |
+| `apk` | Alpine |
+
+Selection defaults to `RS_AGENT_PACKAGE_COLLECTOR=auto`. If a host intentionally uses a non-native package database, force a collector before running the agent:
+
+```bash
+RS_AGENT_PACKAGE_COLLECTOR=rpm bash ~/.local/share/rs-agent/rs_agent.sh --token <AGENT_TOKEN> --uuid <UUID>
+```
+
+Language and application-level collectors are additive. When available, the agent also inspects global/user-visible Python, Node.js, Snap, Flatpak, and Ruby packages without changing the selected system package collector.
 
 On a normal Debian/Ubuntu system, an unprivileged user should be able to list packages with `dpkg-query`. Differences from root mode are expected mainly in restricted commands, inaccessible paths, Python/Node packages visible through `PATH`, or hardware information restricted by the environment.
 

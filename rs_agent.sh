@@ -1192,17 +1192,25 @@ collect_timezone() {
 collect_hardware() {
     local cpu_model firmware_json="" first=1
 
-    # CPU: extract "Model name" with awk to handle spaces correctly
+    # CPU: prefer lscpu, but keep /proc fallback for minimal distributions.
     cpu_model=$(lscpu 2>/dev/null | awk -F':[[:space:]]+' '/^Model name/{print $2; exit}')
+    if [ -z "$cpu_model" ] && [ -r /proc/cpuinfo ]; then
+        cpu_model=$(awk -F':[[:space:]]+' '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null)
+    fi
     [ -z "$cpu_model" ] && cpu_model="Unknown"
 
-    # Disks: awk extracts NAME and MODEL (may contain spaces), filtering disks only
-    while IFS=$'\t' read -r dev model; do
-        [ -z "$dev" ] && continue
+    append_firmware_device() {
+        local dev="$1" model="$2"
+        [ -z "$dev" ] && return
         [ -z "$model" ] && model="Unknown"
 
         [ "$first" = "1" ] && first=0 || firmware_json+=","
         firmware_json+="{\"device\":\"/dev/$(json_escape "$dev")\",\"model\":\"$(json_escape "$model")\"}"
+    }
+
+    # Disks: awk extracts NAME and MODEL (may contain spaces), filtering disks only.
+    while IFS=$'\t' read -r dev model; do
+        append_firmware_device "$dev" "$model"
     done < <(lsblk -d -o NAME,TYPE,MODEL -n 2>/dev/null \
         | awk '$2=="disk" {
             dev=$1
@@ -1211,6 +1219,23 @@ collect_hardware() {
             if(model=="") model="Unknown"
             print dev "\t" model
           }')
+
+    # Fallback for systems where lsblk is unavailable or outside PATH.
+    if [ "$first" = "1" ]; then
+        local sys_block_device sys_device_name sys_device_model
+        for sys_block_device in /sys/block/*; do
+            [ -e "$sys_block_device" ] || continue
+            sys_device_name="${sys_block_device##*/}"
+            case "$sys_device_name" in
+                loop*|ram*|zram*) continue ;;
+            esac
+            sys_device_model=""
+            if [ -r "$sys_block_device/device/model" ]; then
+                sys_device_model=$(tr -d '\r' < "$sys_block_device/device/model" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            fi
+            append_firmware_device "$sys_device_name" "$sys_device_model"
+        done
+    fi
 
     printf '{"cpu_model":"%s","firmware":[%s]}' \
         "$(json_escape "$cpu_model")" \
@@ -1317,17 +1342,112 @@ collect_packages_rpm() {
     SYSTEM_PACKAGES_COUNT=0
 }
 
+collect_packages_pacman() {
+    local components_json="" first=1 component_count=0
+
+    while IFS=' ' read -r name version _rest; do
+        [ -z "$name" ] && continue
+
+        [ "$first" = "1" ] && first=0 || components_json+=","
+        components_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"pacman\"}"
+        component_count=$((component_count + 1))
+    done < <(pacman -Q 2>/dev/null)
+
+    SYSTEM_COMPONENTS_JSON="$components_json"
+    SYSTEM_PACKAGES_JSON=""
+    SYSTEM_COMPONENTS_COUNT="$component_count"
+    SYSTEM_PACKAGES_COUNT=0
+}
+
+collect_packages_apk() {
+    local components_json="" first=1 component_count=0
+
+    while IFS= read -r package_line; do
+        [ -z "$package_line" ] && continue
+
+        local name version
+        name="${package_line%-[0-9]*}"
+        version="${package_line#"$name"-}"
+        if [ "$name" = "$package_line" ]; then
+            name="${package_line%% *}"
+            version="${package_line#"$name"}"
+            version="${version# }"
+        fi
+        [ -z "$name" ] && continue
+
+        [ "$first" = "1" ] && first=0 || components_json+=","
+        components_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"apk\"}"
+        component_count=$((component_count + 1))
+    done < <(apk info -v 2>/dev/null)
+
+    SYSTEM_COMPONENTS_JSON="$components_json"
+    SYSTEM_PACKAGES_JSON=""
+    SYSTEM_COMPONENTS_COUNT="$component_count"
+    SYSTEM_PACKAGES_COUNT=0
+}
+
+package_collector_available() {
+    case "$1" in
+        dpkg) command -v dpkg-query >/dev/null 2>&1 ;;
+        rpm) command -v rpm >/dev/null 2>&1 ;;
+        pacman) command -v pacman >/dev/null 2>&1 ;;
+        apk) command -v apk >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+detect_package_collector() {
+    local requested
+    requested=$(printf '%s' "${RS_AGENT_PACKAGE_COLLECTOR:-auto}" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$requested" != "auto" ] && [ -n "$requested" ]; then
+        if package_collector_available "$requested"; then
+            printf '%s' "$requested"
+        fi
+        return
+    fi
+
+    # Prefer collectors with a native package database present on this host.
+    if [ -d /var/lib/pacman/local ] && package_collector_available pacman; then
+        printf '%s' "pacman"
+        return
+    fi
+    if [ -f /var/lib/dpkg/status ] && package_collector_available dpkg; then
+        printf '%s' "dpkg"
+        return
+    fi
+    if { [ -d /var/lib/rpm ] || [ -d /usr/lib/sysimage/rpm ]; } && package_collector_available rpm; then
+        printf '%s' "rpm"
+        return
+    fi
+    if [ -d /lib/apk/db ] && package_collector_available apk; then
+        printf '%s' "apk"
+        return
+    fi
+
+    # Last chance: use any supported collector available in PATH.
+    for requested in dpkg rpm pacman apk; do
+        if package_collector_available "$requested"; then
+            printf '%s' "$requested"
+            return
+        fi
+    done
+}
+
 collect_packages() {
     SYSTEM_COMPONENTS_JSON=""
     SYSTEM_PACKAGES_JSON=""
     SYSTEM_COMPONENTS_COUNT=0
     SYSTEM_PACKAGES_COUNT=0
+    SYSTEM_PACKAGE_COLLECTOR=""
 
-    if command -v dpkg-query &>/dev/null; then
-        collect_packages_dpkg
-    elif command -v rpm &>/dev/null; then
-        collect_packages_rpm
-    fi
+    SYSTEM_PACKAGE_COLLECTOR=$(detect_package_collector)
+    case "$SYSTEM_PACKAGE_COLLECTOR" in
+        dpkg) collect_packages_dpkg ;;
+        rpm) collect_packages_rpm ;;
+        pacman) collect_packages_pacman ;;
+        apk) collect_packages_apk ;;
+    esac
 }
 
 collect_pip_packages() {
@@ -1377,6 +1497,52 @@ collect_npm_packages() {
         [ "$first" = "1" ] && first=0 || packages_json+=","
         packages_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"npm\"}"
     done < <(npm list -g --depth=0 2>/dev/null | grep -E '[├└]')
+
+    printf '%s' "$packages_json"
+}
+
+collect_snap_packages() {
+    local packages_json="" first=1
+
+    command -v snap &>/dev/null || return
+
+    while read -r name version _rest; do
+        [ -z "$name" ] && continue
+        [ "$name" = "Name" ] && continue
+
+        [ "$first" = "1" ] && first=0 || packages_json+=","
+        packages_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"snap\"}"
+    done < <(snap list 2>/dev/null)
+
+    printf '%s' "$packages_json"
+}
+
+collect_flatpak_packages() {
+    local packages_json="" first=1
+
+    command -v flatpak &>/dev/null || return
+
+    while IFS=$'\t' read -r name version _rest; do
+        [ -z "$name" ] && continue
+
+        [ "$first" = "1" ] && first=0 || packages_json+=","
+        packages_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"flatpak\"}"
+    done < <(flatpak list --app --columns=application,version 2>/dev/null)
+
+    printf '%s' "$packages_json"
+}
+
+collect_gem_packages() {
+    local packages_json="" first=1
+
+    command -v gem &>/dev/null || return
+
+    while IFS='|' read -r name version; do
+        [ -z "$name" ] && continue
+
+        [ "$first" = "1" ] && first=0 || packages_json+=","
+        packages_json+="{\"name\":\"$(json_escape "$name")\",\"version\":\"$(json_escape "$version")\",\"manager\":\"gem\"}"
+    done < <(gem list --local 2>/dev/null | sed -n 's/^\([^ (][^ (]*\)[[:space:]]*(\([^,)]*\).*$/\1|\2/p')
 
     printf '%s' "$packages_json"
 }
@@ -1610,14 +1776,26 @@ main() {
     [ -n "$npm_json" ] && npm_count=$(printf '%s' "$npm_json" | grep -o '"manager":"npm"' | wc -l | tr -d ' ')
     echo "   -> ${npm_count} $(t node_packages)"
 
+    local snap_json snap_count=0
+    snap_json=$(collect_snap_packages)
+    [ -n "$snap_json" ] && snap_count=$(printf '%s' "$snap_json" | grep -o '"manager":"snap"' | wc -l | tr -d ' ')
+
+    local flatpak_json flatpak_count=0
+    flatpak_json=$(collect_flatpak_packages)
+    [ -n "$flatpak_json" ] && flatpak_count=$(printf '%s' "$flatpak_json" | grep -o '"manager":"flatpak"' | wc -l | tr -d ' ')
+
+    local gem_json gem_count=0
+    gem_json=$(collect_gem_packages)
+    [ -n "$gem_json" ] && gem_count=$(printf '%s' "$gem_json" | grep -o '"manager":"gem"' | wc -l | tr -d ' ')
+
     # Merge all components into one JSON array
     local all_components_json=""
-    for part in "$sys_json" "$pip_json" "$npm_json"; do
+    for part in "$sys_json" "$pip_json" "$npm_json" "$snap_json" "$flatpak_json" "$gem_json"; do
         [ -z "$part" ] && continue
         [ -n "$all_components_json" ] && all_components_json+=","
         all_components_json+="$part"
     done
-    local total=$(( sys_count + pip_count + npm_count ))
+    local total=$(( sys_count + pip_count + npm_count + snap_count + flatpak_count + gem_count ))
     echo "   $(t unified_total): ${total} $(t components)"
 
     # --- Build Final JSON ---
